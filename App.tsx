@@ -7,7 +7,7 @@ import { INITIAL_MANGA, ADMIN_CREDENTIALS, SUPABASE_CONFIG } from './constants';
 import { Navbar } from './components/Navbar';
 import { MangaCard } from './components/MangaCard';
 
-// Utility to convert file to base64 with downscaling for very large images
+// Utility to convert file to base64
 const processImageFile = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -15,160 +15,419 @@ const processImageFile = (file: File): Promise<string> => {
     reader.onload = (event) => {
       const img = new Image();
       img.onload = () => {
-        const MAX_DIM = 8192; 
+        const MAX_DIM = 4096; 
         let width = img.width || 800;
         let height = img.height || 1200;
-        
         if (width > MAX_DIM || height > MAX_DIM) {
           const ratio = Math.min(MAX_DIM / width, MAX_DIM / height);
           width *= ratio;
           height *= ratio;
         }
-
         const canvas = document.createElement('canvas');
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         if (!ctx) return reject('Canvas context failed');
-        
-        ctx.fillStyle = "white"; // Prevent black background on transparent images
+        ctx.fillStyle = "white"; 
         ctx.fillRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.7));
+        resolve(canvas.toDataURL('image/jpeg', 0.8));
       };
-      img.onerror = () => reject('Image load failed');
       img.src = event.target?.result as string;
     };
-    reader.onerror = () => reject('File read failed');
   });
 };
 
-// --- Supabase Client Utility ---
+// --- Supabase ---
 let supabaseInstance: any = null;
 const getSupabase = () => {
   if (supabaseInstance) return supabaseInstance;
   try {
     supabaseInstance = createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.key);
     return supabaseInstance;
-  } catch (e) {
-    console.error("Supabase creation failed", e);
-  }
-  return null;
+  } catch (e) { return null; }
 };
 
-// --- Image Editor (Optimized for Webtoons) ---
+interface TextElement {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+  size: number;
+  rotation: number;
+  color: string;
+}
+
+interface EditorHistoryState {
+  canvasData: string;
+  texts: TextElement[];
+}
+
+// --- Professional Image Editor V3.1 (Fix Dragging) ---
 const ImageEditor: React.FC<{
   src: string;
   onSave: (newSrc: string) => void;
   onClose: () => void;
 }> = ({ src, onSave, onClose }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
   const [rotation, setRotation] = useState(0);
-  const [isDrawingMode, setIsDrawingMode] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [activeTool, setActiveTool] = useState<'pen' | 'eraser' | 'text' | 'eyedropper' | 'select'>('pen');
   const [brushColor, setBrushColor] = useState('#6366f1');
+  const [brushSize, setBrushSize] = useState(10);
   const [isDrawing, setIsDrawing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Undo/Redo History
+  const [history, setHistory] = useState<EditorHistoryState[]>([]);
+  const [historyIdx, setHistoryIdx] = useState(-1);
+  
+  // Advanced Text State
+  const [textElements, setTextElements] = useState<TextElement[]>([]);
+  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
+  const [isDraggingText, setIsDraggingText] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
+    loadCanvas();
+  }, [src, rotation]);
+
+  const loadCanvas = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
-    
     setIsLoading(true);
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
-      const MAX_CANVAS_DIM = 8192; 
-      let scale = 1;
-      
-      if (img.width > MAX_CANVAS_DIM || img.height > MAX_CANVAS_DIM) {
-        scale = Math.min(MAX_CANVAS_DIM / img.width, MAX_CANVAS_DIM / img.height);
-      }
-
-      const drawWidth = img.width * scale;
-      const drawHeight = img.height * scale;
-
       const isVertical = rotation % 180 !== 0;
-      canvas.width = isVertical ? drawHeight : drawWidth;
-      canvas.height = isVertical ? drawWidth : drawHeight;
-      
+      canvas.width = isVertical ? img.height : img.width;
+      canvas.height = isVertical ? img.width : img.height;
       ctx.fillStyle = "white";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.save();
       ctx.translate(canvas.width / 2, canvas.height / 2);
       ctx.rotate((rotation * Math.PI) / 180);
-      ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+      ctx.drawImage(img, -img.width / 2, -img.height / 2);
       ctx.restore();
       setIsLoading(false);
-    };
-    img.onerror = () => {
-      alert("Зургийг уншихад алдаа гарлаа.");
-      setIsLoading(false);
+      
+      const initialState = { canvasData: canvas.toDataURL(), texts: [] };
+      setHistory([initialState]);
+      setHistoryIdx(0);
+      setTextElements([]);
     };
     img.src = src;
-  }, [src, rotation]);
+  };
 
-  const startDrawing = (e: any) => {
-    if (!isDrawingMode) return;
-    setIsDrawing(true);
-    draw(e);
+  const pushHistory = (newCanvasData?: string, newTexts?: TextElement[]) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const currentCanvas = newCanvasData || canvas.toDataURL();
+    const currentTexts = newTexts || textElements;
+    
+    const newState = { canvasData: currentCanvas, texts: JSON.parse(JSON.stringify(currentTexts)) };
+    const newHistory = history.slice(0, historyIdx + 1);
+    newHistory.push(newState);
+    
+    if (newHistory.length > 20) newHistory.shift();
+    setHistory(newHistory);
+    setHistoryIdx(newHistory.length - 1);
   };
-  const stopDrawing = () => {
-    setIsDrawing(false);
-    canvasRef.current?.getContext('2d')?.beginPath();
+
+  const handleUndo = () => {
+    if (historyIdx <= 0) return;
+    const prevState = history[historyIdx - 1];
+    setHistoryIdx(historyIdx - 1);
+    applyState(prevState);
   };
-  const draw = (e: any) => {
-    if (!isDrawing || !isDrawingMode) return;
+
+  const applyState = (state: EditorHistoryState) => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    const x = (clientX - rect.left) * scaleX;
-    const y = (clientY - rect.top) * scaleY;
-    ctx.lineWidth = 5;
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = brushColor;
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x, y);
+    const img = new Image();
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+      setTextElements(state.texts);
+      setSelectedTextId(null);
+    };
+    img.src = state.canvasData;
   };
 
-  const handleSave = () => {
-    if (!canvasRef.current) return;
-    try {
-      const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.7);
-      onSave(dataUrl);
-    } catch (e) {
-      alert("Зургийн хэмжээ хэтэрхий том байна.");
+  const getCoordinates = (e: any) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    
+    // Zoom болон CSS Scale-ийг тооцоолж, canvas-ийн дотоод координатад хөрвүүлэх
+    const x = (clientX - rect.left) * (canvas.width / rect.width);
+    const y = (clientY - rect.top) * (canvas.height / rect.height);
+    return { x, y };
+  };
+
+  const handleMouseDown = (e: any) => {
+    const { x, y } = getCoordinates(e);
+    const ctx = canvasRef.current?.getContext('2d');
+    if (!ctx) return;
+
+    if (activeTool === 'eyedropper') {
+      const pixel = ctx.getImageData(x, y, 1, 1).data;
+      setBrushColor(`#${((1 << 24) + (pixel[0] << 16) + (pixel[1] << 8) + pixel[2]).toString(16).slice(1)}`);
+      setActiveTool('pen');
+      return;
+    }
+
+    if (activeTool === 'text') {
+      const newText: TextElement = {
+        id: `txt-${Date.now()}`,
+        text: 'Шинэ текст',
+        x, y,
+        size: Math.max(24, brushSize * 3),
+        rotation: 0,
+        color: brushColor
+      };
+      const newTexts = [...textElements, newText];
+      setTextElements(newTexts);
+      setSelectedTextId(newText.id);
+      setActiveTool('select');
+      pushHistory(undefined, newTexts);
+      return;
+    }
+
+    if (activeTool === 'select') {
+      // Hit detection with a bit of padding
+      const clicked = [...textElements].reverse().find(t => {
+        const hitPadding = 20;
+        const hitWidth = (t.size * 0.6 * t.text.length) / 2 + hitPadding;
+        const hitHeight = t.size / 2 + hitPadding;
+        return x > t.x - hitWidth && x < t.x + hitWidth &&
+               y > t.y - hitHeight && y < t.y + hitHeight;
+      });
+
+      if (clicked) {
+        setSelectedTextId(clicked.id);
+        setIsDraggingText(true);
+        setDragOffset({ x: x - clicked.x, y: y - clicked.y });
+      } else {
+        setSelectedTextId(null);
+      }
+      return;
+    }
+
+    setIsDrawing(true);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineWidth = brushSize;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = activeTool === 'eraser' ? 'white' : brushColor;
+  };
+
+  const handleMouseMove = (e: any) => {
+    const { x, y } = getCoordinates(e);
+    if (isDrawing) {
+      const ctx = canvasRef.current?.getContext('2d');
+      if (ctx) { ctx.lineTo(x, y); ctx.stroke(); }
+    } else if (isDraggingText && selectedTextId) {
+      setTextElements(prev => prev.map(t => t.id === selectedTextId ? { ...t, x: x - dragOffset.x, y: y - dragOffset.y } : t));
     }
   };
 
+  const handleMouseUp = () => {
+    if (isDrawing) {
+      setIsDrawing(false);
+      pushHistory();
+    }
+    if (isDraggingText) {
+      setIsDraggingText(false);
+      pushHistory();
+    }
+  };
+
+  const handleFlattenAndSave = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const finalCanvas = document.createElement('canvas');
+    finalCanvas.width = canvas.width;
+    finalCanvas.height = canvas.height;
+    const fctx = finalCanvas.getContext('2d');
+    if (!fctx) return;
+    
+    fctx.drawImage(canvas, 0, 0);
+    textElements.forEach(t => {
+      fctx.save();
+      fctx.translate(t.x, t.y);
+      fctx.rotate((t.rotation * Math.PI) / 180);
+      fctx.font = `bold ${t.size}px 'Plus Jakarta Sans', sans-serif`;
+      fctx.fillStyle = t.color;
+      fctx.textAlign = 'center';
+      fctx.textBaseline = 'middle';
+      fctx.fillText(t.text, 0, 0);
+      fctx.restore();
+    });
+    onSave(finalCanvas.toDataURL('image/jpeg', 0.9));
+  };
+
+  const selectedText = textElements.find(t => t.id === selectedTextId);
+
   return (
-    <div className="fixed inset-0 z-[2000] bg-black/95 flex flex-col p-4 md:p-10">
-      <div className="max-w-5xl mx-auto w-full flex flex-col h-full gap-4">
-        <div className="flex items-center justify-between bg-zinc-900 p-4 rounded-2xl border border-white/10 shadow-2xl">
-          <div className="flex gap-2">
-            <button onClick={() => setIsDrawingMode(!isDrawingMode)} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${isDrawingMode ? 'bg-indigo-600' : 'bg-white/5'}`}>Зурах Mode</button>
-            <button onClick={() => setRotation(r => r + 90)} className="px-4 py-2 bg-white/5 rounded-xl text-xs font-bold">Эргүүлэх</button>
+    <div className="fixed inset-0 z-[3000] bg-[#050505] flex flex-col font-['Plus_Jakarta_Sans']">
+      {/* Top Toolbar */}
+      <div className="bg-[#0f0f0f] border-b border-white/5 p-4 flex flex-wrap items-center justify-between gap-4 z-50 shadow-xl">
+        <div className="flex items-center gap-2">
+          <div className="flex bg-black p-1.3 rounded-xl border border-white/5">
+            {[
+              { id: 'pen', label: 'Pen', icon: 'M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z' },
+              { id: 'eraser', label: 'Eraser', icon: 'M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6' },
+              { id: 'text', label: 'Add Text', icon: 'M4 7V4h16v3M9 20h6M12 4v16' },
+              { id: 'select', label: 'Select/Move', icon: 'M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5' },
+              { id: 'eyedropper', label: 'Pick Color', icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z' }
+            ].map(tool => (
+              <button 
+                key={tool.id} 
+                onClick={() => setActiveTool(tool.id as any)} 
+                className={`p-3 rounded-lg transition-all ${activeTool === tool.id ? 'bg-indigo-600 text-white' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d={tool.icon} /></svg>
+              </button>
+            ))}
           </div>
-          <div className="flex gap-2">
-            <button onClick={onClose} className="px-4 py-2 bg-white/5 rounded-xl text-xs font-bold">Болих</button>
-            <button onClick={handleSave} className="px-4 py-2 bg-indigo-600 rounded-xl text-xs font-bold shadow-lg shadow-indigo-600/20">Хадгалах</button>
+          <div className="h-8 w-px bg-white/10 mx-2" />
+          <div className="flex items-center gap-3 bg-black px-4 py-2 rounded-xl border border-white/5">
+            <input type="color" value={brushColor} onChange={e => setBrushColor(e.target.value)} className="w-6 h-6 rounded cursor-pointer bg-transparent border-none" />
+            <input type="range" min="1" max="100" value={brushSize} onChange={e => setBrushSize(parseInt(e.target.value))} className="w-16 accent-indigo-600" />
+            <span className="text-[10px] text-zinc-500 font-black w-6">{brushSize}px</span>
+          </div>
+          <div className="flex items-center gap-3 bg-black px-4 py-2 rounded-xl border border-white/5">
+             <span className="text-[9px] text-zinc-600 font-black uppercase tracking-widest">Zoom</span>
+             <input type="range" min="0.1" max="5" step="0.1" value={zoom} onChange={e => setZoom(parseFloat(e.target.value))} className="w-16 accent-indigo-600" />
+             <span className="text-[10px] text-white font-black w-10">{Math.round(zoom * 100)}%</span>
           </div>
         </div>
-        <div className="flex-1 overflow-auto bg-black rounded-[2rem] flex items-center justify-center p-4 border border-white/5 relative">
-          {isLoading && <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
-            <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-            <div className="text-indigo-500 font-black uppercase tracking-widest text-[10px] animate-pulse">Зургийг боловсруулж байна...</div>
-          </div>}
-          <canvas ref={canvasRef} onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} className="max-w-full shadow-2xl rounded-lg" />
+
+        <div className="flex items-center gap-3">
+          <button onClick={handleUndo} disabled={historyIdx <= 0} className="p-3 bg-zinc-900 rounded-xl text-white disabled:opacity-20 hover:bg-zinc-800 transition-all">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+          </button>
+          <button onClick={() => setRotation(r => r + 90)} className="px-5 py-2.5 bg-zinc-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/5">Rotate</button>
+          <div className="h-8 w-px bg-white/10 mx-2" />
+          <button onClick={onClose} className="px-5 py-2.5 text-zinc-500 font-black uppercase tracking-widest text-[10px] hover:text-white">Cancel</button>
+          <button onClick={handleFlattenAndSave} className="px-8 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-indigo-600/30">Save Image</button>
         </div>
+      </div>
+
+      {/* Editor Controls Overlay for Selected Text */}
+      {selectedText && (
+        <div className="absolute top-24 left-1/2 -translate-x-1/2 bg-[#121212]/95 backdrop-blur-xl border border-white/10 p-5 rounded-3xl flex flex-wrap items-center gap-6 z-[100] shadow-[0_32px_64px_rgba(0,0,0,0.5)] animate-slide-up max-w-[95%]">
+           <div className="flex flex-col gap-1">
+             <label className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">Content</label>
+             <input 
+              value={selectedText.text} 
+              onChange={e => {
+                const newTexts = textElements.map(t => t.id === selectedTextId ? { ...t, text: e.target.value } : t);
+                setTextElements(newTexts);
+              }} 
+              onBlur={() => pushHistory()}
+              className="bg-black border border-white/10 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-indigo-600 w-40"
+             />
+           </div>
+           <div className="flex flex-col gap-1">
+             <label className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">Size: {selectedText.size}px</label>
+             <input type="range" min="10" max="400" value={selectedText.size} onChange={e => setTextElements(prev => prev.map(t => t.id === selectedTextId ? { ...t, size: parseInt(e.target.value) } : t))} onMouseUp={() => pushHistory()} className="accent-indigo-600 w-24" />
+           </div>
+           <div className="flex flex-col gap-1">
+             <label className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">Rotate: {selectedText.rotation}°</label>
+             <input type="range" min="-180" max="180" value={selectedText.rotation} onChange={e => setTextElements(prev => prev.map(t => t.id === selectedTextId ? { ...t, rotation: parseInt(e.target.value) } : t))} onMouseUp={() => pushHistory()} className="accent-indigo-600 w-24" />
+           </div>
+           <div className="flex flex-col gap-1">
+             <label className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">Color</label>
+             <input type="color" value={selectedText.color} onChange={e => {
+               const newTexts = textElements.map(t => t.id === selectedTextId ? { ...t, color: e.target.value } : t);
+               setTextElements(newTexts);
+               pushHistory(undefined, newTexts);
+             }} className="w-8 h-8 rounded-lg bg-transparent border-none cursor-pointer" />
+           </div>
+           <button 
+             onClick={() => {
+              const newTexts = textElements.filter(t => t.id !== selectedTextId);
+              setTextElements(newTexts);
+              setSelectedTextId(null);
+              pushHistory(undefined, newTexts);
+             }} 
+             className="bg-red-600/10 text-red-500 p-3 rounded-2xl hover:bg-red-600 hover:text-white transition-all ml-2"
+           >
+             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+           </button>
+        </div>
+      )}
+
+      {/* Workspace Area */}
+      <div 
+        ref={workspaceRef} 
+        className="flex-1 overflow-auto bg-[#0a0a0a] relative flex items-center justify-center p-20 select-none scrollbar-hide"
+      >
+        <div 
+          style={{ transform: `scale(${zoom})`, transformOrigin: 'center center' }} 
+          className="relative transition-transform duration-200"
+        >
+          {isLoading && (
+            <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+              <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+          )}
+          
+          <div className="relative shadow-[0_0_100px_rgba(0,0,0,0.6)] bg-white">
+            <canvas 
+              ref={canvasRef} 
+              onMouseDown={handleMouseDown} 
+              onMouseMove={handleMouseMove} 
+              onMouseUp={handleMouseUp} 
+              onMouseLeave={handleMouseUp}
+              onTouchStart={handleMouseDown}
+              onTouchMove={handleMouseMove}
+              onTouchEnd={handleMouseUp}
+              className={`block ${activeTool === 'pen' ? 'cursor-crosshair' : activeTool === 'select' ? 'cursor-default' : 'cursor-pointer'}`}
+            />
+            
+            {/* Overlay Text Elements (Render as non-interactive to let canvas handle events) */}
+            {textElements.map(t => (
+              <div 
+                key={t.id}
+                style={{
+                  position: 'absolute',
+                  left: t.x,
+                  top: t.y,
+                  transform: `translate(-50%, -50%) rotate(${t.rotation}deg)`,
+                  color: t.color,
+                  fontSize: `${t.size}px`,
+                  fontWeight: 'bold',
+                  whiteSpace: 'nowrap',
+                  pointerEvents: 'none', // canvas handles the hit detection
+                  userSelect: 'none',
+                  border: selectedTextId === t.id ? '2px dashed #6366f1' : '2px solid transparent',
+                  padding: '8px',
+                  lineHeight: '1'
+                }}
+              >
+                {t.text}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      
+      <div className="bg-[#0f0f0f] p-3 text-center border-t border-white/5">
+         <span className="text-[10px] text-zinc-600 font-black uppercase tracking-[0.4em]">
+           {activeTool === 'select' ? 'Click and drag text to move • Click empty space to deselect' : 
+            activeTool === 'text' ? 'Click on the image where you want to add text' : 
+            'Designer mode active'}
+         </span>
       </div>
     </div>
   );
@@ -189,7 +448,7 @@ const MangaEditModal: React.FC<{
   const [isEditingCover, setIsEditingCover] = useState(false);
 
   return (
-    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl overflow-y-auto">
+    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl overflow-y-auto">
       {isEditingCover && (
         <ImageEditor 
           src={coverUrl} 
@@ -197,50 +456,39 @@ const MangaEditModal: React.FC<{
           onSave={(newSrc) => { setCoverUrl(newSrc); setIsEditingCover(false); }} 
         />
       )}
-      <div className="bg-[#0f0f0f] w-full max-w-2xl p-8 md:p-12 rounded-[2.5rem] border border-white/10 shadow-2xl space-y-8 my-8 scale-in">
+      <div className="bg-[#0f0f0f] w-full max-w-2xl p-8 md:p-12 rounded-[2.5rem] border border-white/10 shadow-2xl space-y-8 my-8">
         <div className="flex justify-between items-center">
-          <h2 className="text-3xl font-black text-white italic uppercase">Edit <span className="text-indigo-500">Manga</span></h2>
-          <button onClick={onClose} className="text-zinc-500 bg-white/5 w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 hover:text-white transition-all">&times;</button>
+          <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">Edit <span className="text-indigo-500">Manga</span></h2>
+          <button onClick={onClose} className="text-zinc-500 bg-white/5 w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 transition-all font-bold">&times;</button>
         </div>
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Гарчиг</label>
-              <input value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white focus:border-indigo-600 outline-none font-bold" />
+              <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Title</label>
+              <input value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white font-bold outline-none focus:border-indigo-600 transition-all" />
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Зохиолч</label>
-              <input value={author} onChange={e => setAuthor(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white focus:border-indigo-600 outline-none font-bold" />
+              <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Author</label>
+              <input value={author} onChange={e => setAuthor(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white font-bold outline-none focus:border-indigo-600 transition-all" />
             </div>
           </div>
           <div className="space-y-2">
-            <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Статус</label>
-            <select value={status} onChange={e => setStatus(e.target.value as any)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white outline-none font-bold">
-              <option value="Ongoing">Ongoing</option>
-              <option value="Completed">Completed</option>
-            </select>
+            <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Description</label>
+            <textarea value={description} onChange={e => setDescription(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white h-32 outline-none font-medium focus:border-indigo-600 transition-all" />
           </div>
           <div className="space-y-2">
-            <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Тайлбар</label>
-            <textarea value={description} onChange={e => setDescription(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white h-32 outline-none focus:border-indigo-600 transition-all font-medium" />
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Нүүр зураг</label>
-            <div className="flex flex-col gap-4">
-              <div className="relative w-full aspect-video max-h-[200px] overflow-hidden rounded-2xl border border-white/5 bg-black">
-                <img src={coverUrl} className="w-full h-full object-contain opacity-60" />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <button onClick={() => setIsEditingCover(true)} className="bg-indigo-600 px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl">Зураг засах</button>
-                </div>
-              </div>
-              <input type="file" accept="image/*" onChange={async e => { if (e.target.files && e.target.files[0]) setCoverUrl(await processImageFile(e.target.files[0])); }} className="hidden" id="edit-cover-file" />
-              <label htmlFor="edit-cover-file" className="block bg-zinc-900 border border-white/5 p-4 rounded-2xl text-center cursor-pointer hover:bg-zinc-800 transition-all text-xs font-bold text-zinc-400">Шинэ зураг оруулах</label>
+            <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Cover Art</label>
+            <div className="relative aspect-[3/2] rounded-2xl overflow-hidden bg-black group border border-white/5">
+               <img src={coverUrl} className="w-full h-full object-contain opacity-60" />
+               <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onClick={() => setIsEditingCover(true)} className="bg-indigo-600 px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-indigo-600/30">Edit Cover in Designer</button>
+               </div>
             </div>
           </div>
         </div>
         <div className="flex flex-col gap-3 pt-6 border-t border-white/5">
-          <button onClick={() => onSave({ ...manga, title, author, description, coverUrl, status })} className="w-full bg-indigo-600 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-indigo-500 transition-all">Хадгалах</button>
-          <button onClick={() => window.confirm('Та энэ мангаг устгахдаа итгэлтэй байна уу?') && onDelete()} className="w-full bg-red-600/10 text-red-500 py-4 rounded-2xl font-black uppercase tracking-widest border border-red-600/20 hover:bg-red-600 hover:text-white transition-all">Устгах</button>
+          <button onClick={() => onSave({ ...manga, title, author, description, coverUrl, status })} className="w-full bg-indigo-600 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-indigo-500 transition-all shadow-xl shadow-indigo-600/20">Save All Changes</button>
+          <button onClick={() => window.confirm('Are you sure?') && onDelete()} className="w-full bg-red-600/10 text-red-500 py-4 rounded-2xl font-black uppercase tracking-widest border border-red-600/20 hover:bg-red-600 hover:text-white transition-all">Delete Manga Entry</button>
         </div>
       </div>
     </div>
@@ -254,53 +502,39 @@ const ChapterEditorModal: React.FC<{ chapter: Chapter; onClose: () => void; onSa
   const [pages, setPages] = useState<string[]>(chapter.pages);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
 
-  const handleSave = () => {
-    const parsedNum = parseFloat(num);
-    if (isNaN(parsedNum)) {
-      alert("Бүлгийн дугаар тоо байх ёстой.");
-      return;
-    }
-    onSave({ ...chapter, number: parsedNum, title, pages });
-  };
-
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl">
       {editingIdx !== null && <ImageEditor src={pages[editingIdx]} onClose={() => setEditingIdx(null)} onSave={src => { const p = [...pages]; p[editingIdx] = src; setPages(p); setEditingIdx(null); }} />}
-      <div className="bg-[#0f0f0f] w-full max-w-6xl p-8 rounded-[3rem] border border-white/10 shadow-2xl max-h-[90vh] overflow-y-auto scale-in">
+      <div className="bg-[#0f0f0f] w-full max-w-6xl p-8 rounded-[3rem] border border-white/10 shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-8">
-          <h2 className="text-3xl font-black text-white italic uppercase">Edit <span className="text-indigo-500">Chapter</span></h2>
-          <button onClick={onClose} className="text-zinc-500 bg-white/5 w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 transition-all">&times;</button>
+          <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">Edit <span className="text-indigo-500">Chapter Content</span></h2>
+          <button onClick={onClose} className="text-zinc-500 bg-white/5 w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 transition-all font-bold">&times;</button>
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
+        <div className="grid lg:grid-cols-4 gap-10">
           <div className="space-y-6">
-            <div className="bg-zinc-900/50 p-6 rounded-[2rem] border border-white/5 space-y-5">
+            <div className="bg-zinc-900/50 p-6 rounded-[2rem] border border-white/5 space-y-4">
               <div className="space-y-1">
-                <label className="text-[10px] text-zinc-500 font-black uppercase ml-1">Бүлэг #</label>
-                <input type="number" step="0.1" value={num} onChange={e => setNum(e.target.value)} className="w-full bg-black border border-white/5 rounded-xl p-3 text-white font-bold outline-none focus:border-indigo-600" />
+                <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Chapter #</label>
+                <input type="number" step="0.1" value={num} onChange={e => setNum(e.target.value)} className="w-full bg-black border border-white/5 rounded-xl p-3 text-white font-bold outline-none" placeholder="Chapter #" />
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] text-zinc-500 font-black uppercase ml-1">Гарчиг</label>
-                <input value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-black border border-white/5 rounded-xl p-3 text-white font-bold outline-none focus:border-indigo-600" />
+                <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Title</label>
+                <input value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-black border border-white/5 rounded-xl p-3 text-white font-bold outline-none" placeholder="Title" />
               </div>
             </div>
-            <div className="space-y-3">
-              <input type="file" multiple accept="image/*" id="ch-pages-edit" className="hidden" onChange={async e => { if (e.target.files) setPages([...pages, ...await Promise.all(Array.from(e.target.files).map(f => processImageFile(f)))]); }} />
-              <label htmlFor="ch-pages-edit" className="w-full flex items-center justify-center gap-2 bg-indigo-600/10 text-indigo-400 p-4 rounded-2xl cursor-pointer hover:bg-indigo-600/20 font-black text-xs uppercase tracking-widest transition-all">Хуудас нэмэх</label>
-              <button onClick={handleSave} className="w-full bg-indigo-600 font-black py-5 rounded-2xl shadow-xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all">Хадгалах</button>
-            </div>
+            <button onClick={() => onSave({ ...chapter, number: parseFloat(num), title, pages })} className="w-full bg-indigo-600 py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all">Update Chapter</button>
           </div>
-          <div className="lg:col-span-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 p-6 bg-black rounded-[2rem] min-h-[50vh] content-start border border-white/5">
+          <div className="lg:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-4 bg-black p-6 rounded-[2rem] min-h-[50vh] content-start border border-white/5">
             {pages.map((p, i) => (
               <div key={i} className="relative group aspect-[2/3] bg-zinc-900 rounded-2xl overflow-hidden border border-white/5">
                 <img src={p} className="w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-2 transition-opacity">
-                  <button onClick={() => setEditingIdx(i)} className="bg-indigo-600 text-[10px] font-black uppercase tracking-widest px-5 py-2 rounded-full">Засах</button>
-                  <button onClick={() => setPages(pages.filter((_, idx) => idx !== i))} className="bg-red-600 text-[10px] font-black uppercase tracking-widest px-5 py-2 rounded-full">Устгах</button>
+                <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-3 transition-opacity">
+                  <button onClick={() => setEditingIdx(i)} className="bg-indigo-600 text-[10px] font-black uppercase tracking-widest px-6 py-2.5 rounded-xl shadow-lg">Designer</button>
+                  <button onClick={() => setPages(pages.filter((_, idx) => idx !== i))} className="bg-red-600/20 text-red-500 text-[10px] font-black uppercase tracking-widest px-6 py-2.5 rounded-xl hover:bg-red-600 hover:text-white transition-all">Remove</button>
                 </div>
-                <div className="absolute top-2 left-2 bg-black/50 px-2 py-0.5 rounded text-[10px] text-white font-bold">P. {i + 1}</div>
+                <div className="absolute bottom-2 left-2 bg-black/60 px-2 py-0.5 rounded text-[9px] text-white font-black">PAGE {i+1}</div>
               </div>
             ))}
-            {pages.length === 0 && <div className="col-span-full h-40 flex items-center justify-center text-zinc-700 font-black uppercase tracking-widest border-2 border-dashed border-white/5 rounded-[2rem]">Хуудас байхгүй</div>}
           </div>
         </div>
       </div>
@@ -308,51 +542,31 @@ const ChapterEditorModal: React.FC<{ chapter: Chapter; onClose: () => void; onSa
   );
 };
 
-// --- Home Component ---
+// --- Main Components ---
 const Home: React.FC<{ mangaList: Manga[] }> = ({ mangaList }) => {
   const [search, setSearch] = useState('');
-  const filtered = mangaList.filter(m => 
-    m.title.toLowerCase().includes(search.toLowerCase()) || 
-    m.author.toLowerCase().includes(search.toLowerCase())
-  );
-
+  const filtered = mangaList.filter(m => m.title.toLowerCase().includes(search.toLowerCase()) || m.author.toLowerCase().includes(search.toLowerCase()));
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-8">
       <div className="mb-16 space-y-6 pt-10">
-        <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white uppercase italic leading-none">
-          Discover <br/> <span className="text-indigo-600">New Stories</span>
-        </h1>
+        <h1 className="text-5xl md:text-8xl font-black tracking-tighter text-white uppercase italic leading-[0.85]">Discover <br/> <span className="text-indigo-600">Epic Stories</span></h1>
         <div className="relative max-w-2xl">
-          <input 
-            value={search} 
-            onChange={e => setSearch(e.target.value)} 
-            placeholder="Хайх (Нэр эсвэл Зохиолч)..." 
-            className="w-full bg-[#0f0f0f] border border-white/5 rounded-[1.5rem] p-5 pl-14 text-white font-bold outline-none focus:border-indigo-600 shadow-xl transition-all" 
-          />
-          <svg className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search for titles, authors..." className="w-full bg-[#0f0f0f] border border-white/5 rounded-[1.5rem] p-6 text-white font-bold outline-none focus:border-indigo-600 shadow-2xl transition-all" />
+          <svg className="absolute right-6 top-1/2 -translate-y-1/2 w-6 h-6 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
         </div>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6 md:gap-10">
         {filtered.map(manga => <MangaCard key={manga.id} manga={manga} />)}
       </div>
-      {filtered.length === 0 && (
-        <div className="p-20 text-center">
-          <div className="text-zinc-800 font-black text-4xl uppercase tracking-tighter italic">Манга олдсонгүй</div>
-        </div>
-      )}
     </div>
   );
 };
 
-// --- Manga Detail Component ---
 const MangaDetail: React.FC<{ 
-  mangaList: Manga[], 
-  user: User | null, 
-  onUpdateManga: (manga: Manga) => void,
-  onDeleteManga: (id: string) => void
+  mangaList: Manga[], user: User | null, onUpdateManga: (manga: Manga) => void, onDeleteManga: (id: string) => void
 }> = ({ mangaList, user, onUpdateManga, onDeleteManga }) => {
   const navigate = useNavigate();
-  const { id } = useParams<{ id: string }>();
+  const { id } = useParams();
   const manga = mangaList.find(m => m.id === id);
   const [showAddChapter, setShowAddChapter] = useState(false);
   const [chNumber, setChNumber] = useState('');
@@ -361,87 +575,60 @@ const MangaDetail: React.FC<{
   const [editingChapter, setEditingChapter] = useState<Chapter | null>(null);
   const [editingManga, setEditingManga] = useState(false);
 
+  if (!manga) return null;
   const isAdmin = user?.role === 'admin';
-  if (!manga) return <div className="p-40 text-center font-black text-4xl opacity-20 uppercase tracking-tighter">Manga Not Found</div>;
-
-  const handleAddChapterSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const newChapter: Chapter = { 
-      id: `ch-${Date.now()}`, 
-      number: parseFloat(chNumber), 
-      title: chTitle, 
-      pages: chPages, 
-      createdAt: new Date().toLocaleDateString() 
-    };
-    onUpdateManga({ ...manga, chapters: [...manga.chapters, newChapter] });
-    setShowAddChapter(false); 
-    setChPages([]); 
-    setChNumber(''); 
-    setChTitle('');
-  };
 
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-16">
       {editingManga && <MangaEditModal manga={manga} onClose={() => setEditingManga(false)} onSave={u => { onUpdateManga(u); setEditingManga(false); }} onDelete={() => { onDeleteManga(manga.id); navigate('/'); }} />}
       {editingChapter && <ChapterEditorModal chapter={editingChapter} onClose={() => setEditingChapter(null)} onSave={u => { onUpdateManga({ ...manga, chapters: manga.chapters.map(c => c.id === u.id ? u : c) }); setEditingChapter(null); }} />}
-
       <div className="flex flex-col lg:flex-row gap-16 lg:gap-24">
         <div className="w-full lg:w-[400px] shrink-0 space-y-10">
           <div className="relative group/main">
-            <img src={manga.coverUrl} className="w-full rounded-[3rem] shadow-2xl border border-white/5 transition-all group-hover/main:brightness-50" />
-            {isAdmin && <button onClick={() => setEditingManga(true)} className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/main:opacity-100 transition-opacity bg-black/40 rounded-[3rem] font-black uppercase tracking-widest text-xs">Edit Manga</button>}
+            <img src={manga.coverUrl} className="w-full rounded-[3rem] shadow-2xl border border-white/5" />
+            {isAdmin && <button onClick={() => setEditingManga(true)} className="absolute inset-0 bg-black/40 opacity-0 group-hover/main:opacity-100 flex items-center justify-center font-black uppercase text-xs rounded-[3rem] transition-all shadow-xl">Edit Details</button>}
           </div>
-          <div className="bg-[#0f0f0f] p-8 md:p-10 rounded-[2.5rem] border border-white/5 space-y-6">
-            <div className="flex justify-between font-bold"><span className="text-zinc-600 uppercase text-[10px] tracking-widest">Зохиолч</span><span className="text-sm text-white">{manga.author}</span></div>
-            <div className="flex justify-between font-bold"><span className="text-zinc-600 uppercase text-[10px] tracking-widest">Төлөв</span><span className="text-sm text-indigo-400">{manga.status}</span></div>
-            <div className="flex justify-between font-bold"><span className="text-zinc-600 uppercase text-[10px] tracking-widest">Үнэлгээ</span><span className="text-sm text-white">⭐ {manga.rating}</span></div>
+          <div className="bg-[#0f0f0f] p-8 rounded-[2rem] border border-white/5 space-y-5">
+             <div className="flex justify-between items-center"><span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Author</span><span className="font-bold">{manga.author}</span></div>
+             <div className="flex justify-between items-center"><span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Status</span><span className="font-bold text-indigo-500">{manga.status}</span></div>
+             <div className="flex justify-between items-center"><span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Rating</span><span className="font-bold">⭐ {manga.rating}</span></div>
           </div>
         </div>
-        <div className="flex-1 space-y-14">
-          <div className="space-y-8">
-            <div className="flex justify-between items-start flex-wrap gap-6">
-              <h1 className="text-6xl md:text-8xl font-black leading-[0.9] tracking-tighter text-white uppercase italic">{manga.title}</h1>
-              {isAdmin && <button onClick={() => setShowAddChapter(!showAddChapter)} className="bg-indigo-600 px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all"> {showAddChapter ? 'Болих' : 'Add Chapter'} </button>}
-            </div>
+        <div className="flex-1 space-y-12">
+          <div className="space-y-6">
+            <h1 className="text-6xl md:text-8xl font-black leading-[0.9] tracking-tighter text-white uppercase italic">{manga.title}</h1>
             <p className="text-zinc-400 text-lg md:text-xl leading-relaxed max-w-3xl font-medium">{manga.description}</p>
           </div>
-
+          {isAdmin && <button onClick={() => setShowAddChapter(!showAddChapter)} className="bg-indigo-600 px-8 py-4 rounded-2xl font-black text-xs uppercase shadow-xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all">Add New Chapter</button>}
           {showAddChapter && (
-            <form onSubmit={handleAddChapterSubmit} className="p-10 bg-[#0f0f0f] rounded-[3rem] space-y-8 border border-white/5 animate-slide-up shadow-2xl">
-              <h3 className="text-xl font-black italic uppercase">New <span className="text-indigo-500">Chapter</span></h3>
+            <form onSubmit={(e) => { e.preventDefault(); onUpdateManga({ ...manga, chapters: [...manga.chapters, { id: `ch-${Date.now()}`, number: parseFloat(chNumber), title: chTitle, pages: chPages, createdAt: new Date().toLocaleDateString() }] }); setShowAddChapter(false); setChPages([]); }} className="p-10 bg-[#0f0f0f] rounded-[3rem] space-y-6 border border-white/5 shadow-2xl scale-in">
+              <h3 className="text-xl font-black uppercase tracking-tighter italic">Chapter Metadata</h3>
               <div className="grid md:grid-cols-2 gap-6">
-                <input type="number" step="0.1" value={chNumber} onChange={e => setChNumber(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white font-bold outline-none focus:border-indigo-600" placeholder="Бүлэг #" required />
-                <input value={chTitle} onChange={e => setChTitle(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white font-bold outline-none focus:border-indigo-600" placeholder="Гарчиг" required />
+                <input type="number" step="0.1" value={chNumber} onChange={e => setChNumber(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white font-bold outline-none focus:border-indigo-600" placeholder="Chapter #" required />
+                <input value={chTitle} onChange={e => setChTitle(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white font-bold outline-none focus:border-indigo-600" placeholder="Title" required />
               </div>
-              <input type="file" multiple accept="image/*" className="hidden" id="bulk-pages" onChange={async e => { if (e.target.files) setChPages(await Promise.all(Array.from(e.target.files).map(f => processImageFile(f)))); }} />
-              <label htmlFor="bulk-pages" className="block border-2 border-dashed border-white/5 p-16 rounded-[2rem] text-center cursor-pointer text-zinc-500 font-black uppercase text-xs hover:bg-white/5 transition-all"> 
-                {chPages.length > 0 ? `${chPages.length} PAGES SELECTED` : 'UPLOAD CHAPTER PAGES'} 
-              </label>
-              <button className="w-full bg-indigo-600 py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-indigo-600/30">Бүлэг үүсгэх</button>
+              <input type="file" multiple onChange={async e => { if (e.target.files) setChPages(await Promise.all(Array.from(e.target.files).map(f => processImageFile(f)))); }} className="hidden" id="ch-upload" />
+              <label htmlFor="ch-upload" className="block border-2 border-dashed border-white/5 p-16 rounded-[2rem] text-center cursor-pointer font-black text-xs text-zinc-500 uppercase hover:bg-white/5 transition-all">{chPages.length > 0 ? `${chPages.length} Pages Ready` : 'Click to Upload Manga Pages'}</label>
+              <button className="w-full bg-indigo-600 py-5 rounded-2xl font-black uppercase shadow-xl shadow-indigo-600/20">Finalize & Add Chapter</button>
             </form>
           )}
-
           <div className="space-y-8">
-            <h2 className="text-4xl font-black italic flex items-center gap-6"><span className="w-3 h-12 bg-indigo-600 rounded-full"></span>БҮЛГҮҮД</h2>
+            <h2 className="text-4xl font-black italic">Chapter List</h2>
             <div className="grid gap-4">
               {[...manga.chapters].sort((a,b) => b.number - a.number).map(chapter => (
-                <div key={chapter.id} className="bg-[#0f0f0f] hover:bg-zinc-900 p-6 md:p-8 rounded-[2.5rem] flex items-center justify-between group transition-all border border-white/5 hover:border-indigo-600/30">
-                  <div onClick={() => navigate(`/reader/${manga.id}/${chapter.id}`)} className="flex-1 cursor-pointer flex items-center gap-8">
-                    <div className="text-indigo-600 font-black text-3xl italic min-w-[80px]">#{chapter.number}</div>
-                    <div>
-                      <div className="font-black text-xl text-white group-hover:text-indigo-400 transition-colors">{chapter.title}</div>
-                      <div className="text-[10px] text-zinc-600 uppercase font-black mt-1 tracking-widest">{chapter.createdAt} • {chapter.pages.length} PAGES</div>
-                    </div>
+                <div key={chapter.id} className="bg-[#0f0f0f] p-6 md:p-8 rounded-[2.5rem] flex items-center justify-between group border border-white/5 hover:border-indigo-600/30 transition-all">
+                  <div onClick={() => navigate(`/reader/${manga.id}/${chapter.id}`)} className="flex-1 cursor-pointer">
+                    <div className="text-indigo-600 font-black text-3xl italic">#{chapter.number}</div>
+                    <div className="font-black text-xl text-white mt-1 group-hover:text-indigo-400 transition-colors">{chapter.title}</div>
+                    <div className="text-[10px] text-zinc-600 font-black uppercase tracking-widest mt-1">{chapter.pages.length} PAGES • {chapter.createdAt}</div>
                   </div>
                   {isAdmin && (
                     <div className="flex gap-3 opacity-0 group-hover:opacity-100 transition-all">
-                      <button onClick={() => setEditingChapter(chapter)} className="p-4 bg-indigo-600/10 text-indigo-500 rounded-2xl font-black text-[10px] uppercase hover:bg-indigo-600 hover:text-white transition-all">Edit</button>
-                      <button onClick={() => window.confirm('Бүлгийг устгах уу?') && onUpdateManga({ ...manga, chapters: manga.chapters.filter(c => c.id !== chapter.id) })} className="p-4 bg-red-600/10 text-red-500 rounded-2xl font-black text-[10px] uppercase hover:bg-red-600 hover:text-white transition-all">Del</button>
+                      <button onClick={() => setEditingChapter(chapter)} className="p-4 bg-indigo-600/10 text-indigo-500 rounded-2xl font-black text-[10px] uppercase hover:bg-indigo-600 hover:text-white transition-all">Content Editor</button>
                     </div>
                   )}
                 </div>
               ))}
-              {manga.chapters.length === 0 && <div className="p-20 text-center text-zinc-800 font-black uppercase tracking-widest italic opacity-30 border-2 border-dashed border-white/5 rounded-[3rem]">No chapters added yet</div>}
             </div>
           </div>
         </div>
@@ -450,156 +637,87 @@ const MangaDetail: React.FC<{
   );
 };
 
-// --- Reader Component ---
 const Reader: React.FC<{ mangaList: Manga[] }> = ({ mangaList }) => {
-  const { mangaId, chapterId } = useParams<{ mangaId: string, chapterId: string }>();
+  const { mangaId, chapterId } = useParams();
   const manga = mangaList.find(m => m.id === mangaId);
   const chapter = manga?.chapters.find(c => c.id === chapterId);
-  
-  if (!chapter) return <div className="p-40 text-center font-black opacity-20 text-4xl uppercase tracking-tighter">Chapter Not Found</div>;
-  
+  if (!chapter) return <div className="p-40 text-center font-black uppercase text-zinc-800 italic">Content Not Found</div>;
   return (
     <div className="bg-[#050505] min-h-screen">
       <div className="max-w-4xl mx-auto pb-32">
-        <div className="sticky top-0 bg-[#050505]/90 backdrop-blur-2xl p-6 flex items-center justify-between z-50 border-b border-white/5">
-          <button onClick={() => window.history.back()} className="p-4 bg-white/5 rounded-2xl hover:bg-white/10 text-white transition-all">← Back</button>
-          <div className="text-center">
-            <h2 className="font-black text-lg text-white truncate max-w-[200px]">{manga?.title}</h2>
-            <p className="text-[10px] text-indigo-500 font-black uppercase tracking-[0.2em]">Chapter {chapter.number}</p>
-          </div>
-          <span className="text-[10px] bg-indigo-600/10 border border-indigo-600/20 px-4 py-2 rounded-full font-black text-indigo-400 uppercase tracking-widest">{chapter.pages.length} PAGES</span>
+        <div className="sticky top-0 bg-[#050505]/95 backdrop-blur-2xl p-6 flex items-center justify-between z-50 border-b border-white/5">
+          <button onClick={() => window.history.back()} className="px-6 py-3 bg-white/5 rounded-2xl text-white font-black text-xs hover:bg-white/10 transition-all uppercase tracking-widest">← Return</button>
+          <div className="text-center"><h2 className="font-black text-lg text-white truncate max-w-[200px]">{manga?.title}</h2><p className="text-[10px] text-indigo-500 font-black uppercase tracking-[0.3em]">Chapter {chapter.number}</p></div>
+          <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{chapter.pages.length} Pages</span>
         </div>
-        <div className="flex flex-col gap-1 mt-6">
+        <div className="flex flex-col gap-2 mt-6">
           {chapter.pages.map((p, i) => <img key={i} src={p} className="w-full h-auto block shadow-2xl" loading="lazy" alt={`Page ${i+1}`} />)}
-        </div>
-        <div className="mt-12 text-center">
-          <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="bg-white/5 border border-white/10 px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-white/10 transition-all">Top ↑</button>
         </div>
       </div>
     </div>
   );
 };
 
-// --- Admin Panel ---
 const AdminPanel: React.FC<{ 
-  mangaList: Manga[], 
-  admins: AdminAccount[],
-  onAddManga: (m: Manga) => void,
-  onSyncToCloud: () => void,
-  onFetchFromCloud: () => void,
-  onDeleteManga: (id: string) => void,
-  onAddAdmin: (a: AdminAccount) => void,
-  onDeleteAdmin: (username: string) => void,
-  cloudStatus: string,
-  currentUser: User | null
-}> = ({ mangaList, admins, onAddManga, onSyncToCloud, onFetchFromCloud, onDeleteManga, onAddAdmin, onDeleteAdmin, cloudStatus, currentUser }) => {
-  const [activeTab, setActiveTab] = useState<'manga' | 'admins'>('manga');
+  mangaList: Manga[], admins: AdminAccount[], onAddManga: (m: Manga) => void, onSyncToCloud: () => void, 
+  onFetchFromCloud: () => void, onDeleteManga: (id: string) => void, onAddAdmin: (a: AdminAccount) => void,
+  onDeleteAdmin: (u: string) => void, cloudStatus: string, currentUser: User | null
+}> = (props) => {
   const [newManga, setNewManga] = useState({ title: '', author: '', description: '', coverUrl: '' });
-  const [newAdmin, setNewAdmin] = useState({ username: '', password: '' });
   const navigate = useNavigate();
 
-  const handleMangaSubmit = (e: React.FormEvent) => {
+  const handleMangaSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const manga: Manga = { 
-      id: `m-${Date.now()}`, 
-      title: newManga.title,
-      author: newManga.author,
-      description: newManga.description,
-      coverUrl: newManga.coverUrl || 'https://picsum.photos/400/600',
-      gallery: [], 
-      genre: ['Manga'], 
-      status: 'Ongoing', 
-      rating: 5.0, 
-      chapters: [] 
-    };
-    onAddManga(manga); 
-    setNewManga({ title: '', author: '', description: '', coverUrl: '' });
-    navigate(`/manga/${manga.id}`);
+    const manga: Manga = { id: `m-${Date.now()}`, title: newManga.title, author: newManga.author, description: newManga.description, coverUrl: newManga.coverUrl || 'https://picsum.photos/400/600', gallery: [], genre: ['Manga'], status: 'Ongoing', rating: 5.0, chapters: [] };
+    props.onAddManga(manga); navigate(`/manga/${manga.id}`);
   };
 
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-16 space-y-16">
-      <div className="bg-[#0f0f0f] p-10 md:p-16 rounded-[3.5rem] border border-white/5 shadow-2xl space-y-12 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-600/10 blur-[150px] -z-10"></div>
-        <div className="flex items-center justify-between flex-wrap gap-8">
-          <div>
-            <h1 className="text-5xl font-black text-white italic tracking-tighter uppercase leading-none">Admin <br/><span className="text-indigo-500 text-6xl">Dashboard</span></h1>
-            <p className="text-zinc-500 font-bold text-sm uppercase tracking-widest mt-4">Manage your content and system users.</p>
-          </div>
-          <div className="flex flex-col gap-3">
-            <div className={`px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${cloudStatus.includes('Амжилттай') ? 'bg-indigo-600/10 text-indigo-400 border-indigo-600/20 shadow-lg shadow-indigo-600/5' : 'bg-zinc-900 text-zinc-500 border-white/5'}`}>Status: {cloudStatus}</div>
-            <div className="flex gap-2">
-              <button onClick={onSyncToCloud} className="bg-indigo-600 px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-500 transition-all shadow-lg shadow-indigo-600/20">Sync Up</button>
-              <button onClick={onFetchFromCloud} className="bg-zinc-800 px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-zinc-700 transition-all">Sync Down</button>
-            </div>
-          </div>
+      <div className="bg-[#0f0f0f] p-10 md:p-16 rounded-[3.5rem] border border-white/5 shadow-2xl relative overflow-hidden flex flex-col md:flex-row justify-between items-center gap-10">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/10 blur-[100px]"></div>
+        <div className="relative z-10">
+          <h1 className="text-5xl font-black text-white italic uppercase tracking-tighter">Command Center</h1>
+          <p className="text-zinc-500 font-bold uppercase text-[10px] tracking-widest mt-2">Oversee all manga content and platform synchronization.</p>
         </div>
-        <div className="flex gap-10 border-t border-white/5 pt-8">
-          <button onClick={() => setActiveTab('manga')} className={`text-sm font-black uppercase tracking-[0.2em] pb-3 border-b-2 transition-all ${activeTab === 'manga' ? 'border-indigo-600 text-white' : 'border-transparent text-zinc-600'}`}>Content Management</button>
-          <button onClick={() => setActiveTab('admins')} className={`text-sm font-black uppercase tracking-[0.2em] pb-3 border-b-2 transition-all ${activeTab === 'admins' ? 'border-indigo-600 text-white' : 'border-transparent text-zinc-600'}`}>Staff Members</button>
+        <div className="flex gap-4 relative z-10">
+          <button onClick={props.onSyncToCloud} className="bg-indigo-600 px-8 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all">Sync Cloud</button>
+          <div className="px-8 py-3.5 bg-black border border-white/5 rounded-2xl text-[10px] text-indigo-400 font-black uppercase tracking-widest shadow-inner">{props.cloudStatus}</div>
         </div>
       </div>
-
-      {activeTab === 'manga' ? (
-        <div className="grid lg:grid-cols-2 gap-16">
-          <form onSubmit={handleMangaSubmit} className="space-y-10 bg-[#0f0f0f] p-10 md:p-14 rounded-[3.5rem] border border-white/5 shadow-2xl scale-in">
-            <h2 className="text-3xl font-black italic uppercase">Add <span className="text-indigo-500">Manga</span></h2>
-            <div className="space-y-6">
-              <input value={newManga.title} onChange={e => setNewManga({...newManga, title: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600 transition-all" placeholder="Title" required />
-              <input value={newManga.author} onChange={e => setNewManga({...newManga, author: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600 transition-all" placeholder="Author" required />
-              <textarea value={newManga.description} onChange={e => setNewManga({...newManga, description: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white h-44 font-medium outline-none focus:border-indigo-600 transition-all" placeholder="Description" required />
-              <input type="file" onChange={async e => { if (e.target.files?.[0]) setNewManga({...newManga, coverUrl: await processImageFile(e.target.files[0])}); }} className="hidden" id="add-m-c" />
-              <label htmlFor="add-m-c" className="block border-2 border-dashed border-white/5 p-12 rounded-[2rem] text-center cursor-pointer text-zinc-600 font-black uppercase text-xs hover:bg-white/5 transition-all"> {newManga.coverUrl ? 'COVER IMAGE READY' : 'SELECT MANGA COVER'} </label>
-              <button className="w-full bg-indigo-600 py-6 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all">Register Manga</button>
-            </div>
-          </form>
-          <div className="bg-[#0f0f0f] p-10 md:p-14 rounded-[3.5rem] border border-white/5 shadow-2xl space-y-10">
-            <h2 className="text-3xl font-black italic uppercase">Existing <span className="text-indigo-500">List</span></h2>
-            <div className="space-y-4 max-h-[700px] overflow-y-auto pr-4 scrollbar-hide">
-              {mangaList.map(m => (
-                <div key={m.id} className="flex items-center justify-between p-5 bg-black rounded-[2rem] border border-white/5 group hover:border-indigo-600/40 transition-all">
-                  <div className="flex items-center gap-6"><img src={m.coverUrl} className="w-16 h-20 object-cover rounded-xl shadow-lg" /> <div className="font-black text-white">{m.title}</div> </div>
-                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                    <button onClick={() => navigate(`/manga/${m.id}`)} className="p-3 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg">Edit</button>
-                    <button onClick={() => window.confirm('Устгах уу?') && onDeleteManga(m.id)} className="p-3 bg-red-600/20 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-600 hover:text-white transition-all">Del</button>
-                  </div>
-                </div>
-              ))}
-            </div>
+      <div className="grid lg:grid-cols-2 gap-16">
+        <form onSubmit={handleMangaSubmit} className="space-y-10 bg-[#0f0f0f] p-10 md:p-14 rounded-[3.5rem] border border-white/5 shadow-2xl scale-in">
+          <h2 className="text-3xl font-black italic uppercase tracking-tighter">Draft New <span className="text-indigo-500">Manga</span></h2>
+          <div className="space-y-6">
+            <input value={newManga.title} onChange={e => setNewManga({...newManga, title: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600 transition-all" placeholder="Series Title" required />
+            <input value={newManga.author} onChange={e => setNewManga({...newManga, author: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600 transition-all" placeholder="Primary Author" required />
+            <textarea value={newManga.description} onChange={e => setNewManga({...newManga, description: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white h-44 outline-none focus:border-indigo-600 transition-all font-medium" placeholder="Brief Synopsis" required />
+            <input type="file" onChange={async e => { if (e.target.files?.[0]) setNewManga({...newManga, coverUrl: await processImageFile(e.target.files[0])}); }} className="hidden" id="add-m-cover" />
+            <label htmlFor="add-m-cover" className="block border-2 border-dashed border-white/5 p-12 rounded-[2rem] text-center cursor-pointer text-zinc-600 font-black uppercase text-xs hover:bg-white/5 transition-all">{newManga.coverUrl ? 'Cover Ready' : 'Upload Cover Art'}</label>
+            <button className="w-full bg-indigo-600 py-6 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all">Initialize Series</button>
           </div>
-        </div>
-      ) : (
-        <div className="grid lg:grid-cols-2 gap-16">
-          <form onSubmit={e => { e.preventDefault(); onAddAdmin(newAdmin); setNewAdmin({username:'', password:''}); }} className="space-y-10 bg-[#0f0f0f] p-10 md:p-14 rounded-[3.5rem] border border-white/5 shadow-2xl scale-in">
-            <h2 className="text-3xl font-black italic uppercase">New <span className="text-indigo-500">Staff</span></h2>
-            <div className="space-y-6">
-              <input value={newAdmin.username} onChange={e => setNewAdmin({...newAdmin, username: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600 transition-all" placeholder="Username" required />
-              <input type="password" value={newAdmin.password} onChange={e => setNewAdmin({...newAdmin, password: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600 transition-all" placeholder="Password" required />
-              <button className="w-full bg-indigo-600 py-6 rounded-2xl font-black uppercase tracking-widest text-sm shadow-xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all">Grant Access</button>
-            </div>
-          </form>
-          <div className="bg-[#0f0f0f] p-10 md:p-14 rounded-[3.5rem] border border-white/5 shadow-2xl space-y-10">
-            <h2 className="text-3xl font-black italic uppercase">System <span className="text-indigo-500">Admins</span></h2>
-            <div className="space-y-4">
-              {admins.map((a, i) => (
-                <div key={i} className="flex items-center justify-between p-6 bg-black rounded-[2rem] border border-white/5 group transition-all hover:border-indigo-600/20">
-                  <div className="flex items-center gap-5">
-                    <div className="w-12 h-12 rounded-2xl bg-indigo-600/20 flex items-center justify-center font-black text-indigo-500 shadow-inner">A</div>
-                    <div>
-                      <div className="font-black text-white text-lg">{a.username}</div>
-                      <div className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest">{a.isSuperAdmin ? 'Full Access' : 'Staff Member'}</div>
+        </form>
+        <div className="bg-[#0f0f0f] p-10 md:p-14 rounded-[3.5rem] border border-white/5 shadow-2xl space-y-8">
+           <h2 className="text-3xl font-black italic uppercase tracking-tighter">Library <span className="text-indigo-500">Inventory</span></h2>
+           <div className="space-y-4 max-h-[600px] overflow-y-auto pr-4 scrollbar-hide">
+              {props.mangaList.map(m => (
+                <div key={m.id} className="flex items-center justify-between p-5 bg-black rounded-[2rem] border border-white/5 group hover:border-indigo-600/40 transition-all">
+                  <div className="flex items-center gap-6">
+                    <img src={m.coverUrl} className="w-14 h-20 object-cover rounded-xl shadow-lg" />
+                    <div className="flex flex-col">
+                      <span className="font-black text-white group-hover:text-indigo-400 transition-colors">{m.title}</span>
+                      <span className="text-[9px] text-zinc-600 font-black uppercase mt-1">{m.chapters.length} CHAPTERS</span>
                     </div>
                   </div>
-                  {!a.isSuperAdmin && currentUser?.username === 'Battushig' && (
-                    <button onClick={() => window.confirm('Эрхийг цуцлах уу?') && onDeleteAdmin(a.username)} className="text-red-500 hover:text-red-400 font-black text-[10px] uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all">Revoke</button>
-                  )}
-                  {a.isSuperAdmin && <span className="text-indigo-500 text-[9px] font-black uppercase tracking-widest bg-indigo-500/10 px-3 py-1.5 rounded-lg border border-indigo-500/20">Super User</span>}
+                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                    <button onClick={() => navigate(`/manga/${m.id}`)} className="p-3 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg">Manage</button>
+                    <button onClick={() => window.confirm('Permanently delete?') && props.onDeleteManga(m.id)} className="p-3 bg-red-600/20 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-600 hover:text-white transition-all">Erase</button>
+                  </div>
                 </div>
               ))}
-            </div>
-          </div>
+           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 };
@@ -617,135 +735,54 @@ const App: React.FC = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authForm, setAuthForm] = useState({ username: '', password: '' });
-  const [cloudStatus, setCloudStatus] = useState('Салсан');
+  const [cloudStatus, setCloudStatus] = useState('Standby');
 
-  // Fetch from cloud on mount
   useEffect(() => {
     const savedManga = localStorage.getItem('manga_list');
-    if (savedManga) {
-      try { setMangaList(JSON.parse(savedManga)); } catch (e) { setMangaList(INITIAL_MANGA); }
-    } else {
-      setMangaList(INITIAL_MANGA);
-    }
+    if (savedManga) setMangaList(JSON.parse(savedManga));
+    else setMangaList(INITIAL_MANGA);
     handleFetchFromCloud();
   }, []);
 
-  // Sync to localstorage
-  useEffect(() => {
-    if (mangaList.length > 0) {
-      try { localStorage.setItem('manga_list', JSON.stringify(mangaList)); } catch (e) {}
-    }
-  }, [mangaList]);
+  useEffect(() => { localStorage.setItem('manga_list', JSON.stringify(mangaList)); }, [mangaList]);
+  useEffect(() => { localStorage.setItem('rgt_admins', JSON.stringify(admins)); }, [admins]);
+  useEffect(() => { localStorage.setItem('auth_state', JSON.stringify(authState)); }, [authState]);
 
-  useEffect(() => {
-    localStorage.setItem('rgt_admins', JSON.stringify(admins));
-  }, [admins]);
-
-  useEffect(() => {
-    localStorage.setItem('auth_state', JSON.stringify(authState));
-  }, [authState]);
-
-  const handleSyncToCloud = async (overrideAdmins?: AdminAccount[], overrideManga?: Manga[]) => {
-    const sb = getSupabase();
-    if (!sb) {
-      setCloudStatus('Supabase алдаа');
-      return;
-    }
+  const handleSyncToCloud = async (ovAdmins?: AdminAccount[], ovManga?: Manga[]) => {
+    const sb = getSupabase(); if (!sb) return;
     setCloudStatus('Syncing...');
     try {
-      const targetAdmins = overrideAdmins || admins;
-      const targetManga = overrideManga || mangaList;
+      const targetAdmins = ovAdmins || admins;
+      const targetManga = ovManga || mangaList;
       const mangaData = targetManga.map(m => ({ id: m.id, data: m }));
-      
-      if (mangaData.length > 0) {
-        await sb.from('manga').upsert(mangaData);
-      }
+      if (mangaData.length > 0) await sb.from('manga').upsert(mangaData);
       await sb.from('config').upsert({ id: 'admins_list', data: targetAdmins });
-      
-      setCloudStatus('Амжилттай хадгаллаа');
-      setTimeout(() => setCloudStatus('Амжилттай'), 3000);
-    } catch (e: any) { 
-      console.error(e);
-      setCloudStatus('Error'); 
-    }
+      setCloudStatus('Success'); setTimeout(() => setCloudStatus('Standby'), 3000);
+    } catch (e) { setCloudStatus('Error'); }
   };
 
   const handleFetchFromCloud = async () => {
-    const sb = getSupabase();
-    if (!sb) return;
+    const sb = getSupabase(); if (!sb) return;
     try {
-      setCloudStatus('Fetching...');
       const { data: mData } = await sb.from('manga').select('*');
-      if (mData && mData.length > 0) {
-        setMangaList(mData.map((i: any) => i.data));
-      }
-      
+      if (mData?.length) setMangaList(mData.map((i: any) => i.data));
       const { data: cData } = await sb.from('config').select('*').eq('id', 'admins_list').single();
-      if (cData && cData.data) {
-        setAdmins(cData.data);
-      }
-      
-      setCloudStatus('Амжилттай татлаа');
-      setTimeout(() => setCloudStatus('Амжилттай'), 3000);
-    } catch (e: any) { 
-      console.error(e);
-      setCloudStatus('Error'); 
-    }
-  };
-
-  const handleAddAdmin = async (newAdmin: AdminAccount) => {
-    const updatedAdmins = [...admins, newAdmin];
-    setAdmins(updatedAdmins);
-    await handleSyncToCloud(updatedAdmins);
-  };
-
-  const handleDeleteAdmin = async (username: string) => {
-    const updatedAdmins = admins.filter(a => a.username !== username);
-    setAdmins(updatedAdmins);
-    await handleSyncToCloud(updatedAdmins);
+      if (cData?.data) setAdmins(cData.data);
+    } catch (e) { }
   };
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (authMode === 'login') {
-      const foundAdmin = admins.find(a => a.username === authForm.username && a.password === authForm.password);
-      if (foundAdmin) {
-        setAuthState({ user: { username: foundAdmin.username, role: 'admin' }, isAuthenticated: true });
-        setShowAuthModal(false);
-      } else {
-        alert("Нэвтрэх нэр эсвэл нууц үг буруу байна.");
-      }
+      const found = admins.find(a => a.username === authForm.username && a.password === authForm.password);
+      if (found) { setAuthState({ user: { username: found.username, role: 'admin' }, isAuthenticated: true }); setShowAuthModal(false); }
+      else alert("Authentication failed. Invalid credentials.");
     } else {
-      if (admins.some(a => a.username === authForm.username)) {
-        alert("Энэ нэр ашиглагдсан байна.");
-        return;
-      }
-      const newUser: AdminAccount = { username: authForm.username, password: authForm.password, isSuperAdmin: false };
-      const updatedAdmins = [...admins, newUser];
-      setAdmins(updatedAdmins);
-      await handleSyncToCloud(updatedAdmins);
-      setAuthState({ user: { username: authForm.username, role: 'admin' }, isAuthenticated: true });
-      setShowAuthModal(false);
+      if (admins.some(a => a.username === authForm.username)) return alert("Identity already registered.");
+      const newUser = { username: authForm.username, password: authForm.password, isSuperAdmin: false };
+      const upAdmins = [...admins, newUser]; setAdmins(upAdmins); await handleSyncToCloud(upAdmins);
+      setAuthState({ user: { username: authForm.username, role: 'admin' }, isAuthenticated: true }); setShowAuthModal(false);
     }
-    setAuthForm({ username: '', password: '' });
-  };
-
-  const handleUpdateManga = async (updated: Manga) => {
-    const newList = mangaList.map(m => m.id === updated.id ? updated : m);
-    setMangaList(newList);
-    await handleSyncToCloud(admins, newList);
-  };
-
-  const handleAddManga = async (m: Manga) => {
-    const newList = [m, ...mangaList];
-    setMangaList(newList);
-    await handleSyncToCloud(admins, newList);
-  };
-
-  const handleDeleteManga = async (id: string) => {
-    const newList = mangaList.filter(m => m.id !== id);
-    setMangaList(newList);
-    await handleSyncToCloud(admins, newList);
   };
 
   return (
@@ -755,43 +792,32 @@ const App: React.FC = () => {
         <main className="flex-1 bg-[#050505]">
           <Routes>
             <Route path="/" element={<Home mangaList={mangaList} />} />
-            <Route path="/manga/:id" element={<MangaDetail mangaList={mangaList} user={authState.user} onUpdateManga={handleUpdateManga} onDeleteManga={handleDeleteManga} />} />
+            <Route path="/manga/:id" element={<MangaDetail mangaList={mangaList} user={authState.user} onUpdateManga={u => { const newList = mangaList.map(m => m.id === u.id ? u : m); setMangaList(newList); handleSyncToCloud(admins, newList); }} onDeleteManga={id => { const newList = mangaList.filter(m => m.id !== id); setMangaList(newList); handleSyncToCloud(admins, newList); }} />} />
             <Route path="/reader/:mangaId/:chapterId" element={<Reader mangaList={mangaList} />} />
-            <Route path="/admin" element={authState.user?.role === 'admin' ? <AdminPanel mangaList={mangaList} admins={admins} onAddManga={handleAddManga} onSyncToCloud={() => handleSyncToCloud()} onFetchFromCloud={handleFetchFromCloud} onDeleteManga={handleDeleteManga} onAddAdmin={handleAddAdmin} onDeleteAdmin={handleDeleteAdmin} cloudStatus={cloudStatus} currentUser={authState.user} /> : <Home mangaList={mangaList} />} />
+            <Route path="/admin" element={authState.user?.role === 'admin' ? <AdminPanel mangaList={mangaList} admins={admins} onAddManga={m => { const newList = [m, ...mangaList]; setMangaList(newList); handleSyncToCloud(admins, newList); }} onSyncToCloud={() => handleSyncToCloud()} onFetchFromCloud={handleFetchFromCloud} onDeleteManga={id => { const newList = mangaList.filter(m => m.id !== id); setMangaList(newList); handleSyncToCloud(admins, newList); }} onAddAdmin={a => { const upAdmins = [...admins, a]; setAdmins(upAdmins); handleSyncToCloud(upAdmins); }} onDeleteAdmin={u => { const upAdmins = admins.filter(a => a.username !== u); setAdmins(upAdmins); handleSyncToCloud(upAdmins); }} cloudStatus={cloudStatus} currentUser={authState.user} /> : <Home mangaList={mangaList} />} />
           </Routes>
         </main>
         {showAuthModal && (
           <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/95 backdrop-blur-3xl">
-            <div className="bg-[#0f0f0f] w-full max-w-md p-10 md:p-12 rounded-[3.5rem] border border-white/5 shadow-2xl scale-in">
+            <div className="bg-[#0f0f0f] w-full max-w-md p-12 rounded-[3.5rem] border border-white/5 shadow-2xl scale-in">
               <div className="flex gap-8 mb-10 border-b border-white/5 pb-2">
-                <button onClick={() => setAuthMode('login')} className={`text-xl font-black uppercase tracking-tighter italic ${authMode === 'login' ? 'text-indigo-500' : 'text-zinc-600'}`}>Login</button>
-                <button onClick={() => setAuthMode('register')} className={`text-xl font-black uppercase tracking-tighter italic ${authMode === 'register' ? 'text-indigo-500' : 'text-zinc-600'}`}>Register</button>
+                <button onClick={() => setAuthMode('login')} className={`text-xl font-black uppercase tracking-tighter italic ${authMode === 'login' ? 'text-indigo-500' : 'text-zinc-600'}`}>Sign In</button>
+                <button onClick={() => setAuthMode('register')} className={`text-xl font-black uppercase tracking-tighter italic ${authMode === 'register' ? 'text-indigo-500' : 'text-zinc-600'}`}>Create Account</button>
               </div>
-              <form onSubmit={handleAuthSubmit} className="space-y-8">
-                <div className="space-y-1">
-                  <label className="text-[10px] text-zinc-600 font-black uppercase tracking-widest ml-1">Username</label>
-                  <input value={authForm.username} onChange={e => setAuthForm({ ...authForm, username: e.target.value })} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600 transition-all" placeholder="Enter username" required />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] text-zinc-600 font-black uppercase tracking-widest ml-1">Password</label>
-                  <input type="password" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600 transition-all" placeholder="Enter password" required />
-                </div>
-                <button className="w-full bg-indigo-600 py-5 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all">
-                  {authMode === 'login' ? 'Sign In' : 'Sign Up'}
-                </button>
+              <form onSubmit={handleAuthSubmit} className="space-y-6">
+                <input value={authForm.username} onChange={e => setAuthForm({ ...authForm, username: e.target.value })} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600" placeholder="Username" required />
+                <input type="password" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600" placeholder="Password" required />
+                <button className="w-full bg-indigo-600 py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-indigo-600/20 mt-4 hover:bg-indigo-500 transition-all">{authMode === 'login' ? 'Continue to Portal' : 'Register Identity'}</button>
+                <button type="button" onClick={() => setShowAuthModal(false)} className="w-full text-[10px] text-zinc-700 font-black uppercase tracking-[0.3em] hover:text-white transition-all mt-4">Dismiss</button>
               </form>
-              <button onClick={() => setShowAuthModal(false)} className="mt-8 w-full text-[10px] text-zinc-700 font-black uppercase tracking-[0.3em] hover:text-white transition-all">Cancel</button>
             </div>
           </div>
         )}
-        <footer className="mt-20 p-16 text-center border-t border-white/5 bg-[#050505]">
-          <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-10">
-            <div className="flex flex-col items-start gap-2">
-                <div className="text-2xl font-black text-white italic tracking-tighter">RGT<span className="text-indigo-600">MANGA</span></div>
-                <p className="text-zinc-600 font-bold uppercase text-[9px] tracking-[0.4em]">The Ultimate Reading Experience</p>
-            </div>
-            <div className="text-zinc-700 font-black uppercase text-[10px] tracking-[0.3em]">© 2026 RGT MEDIA GROUP. ALL RIGHTS RESERVED.</div>
-          </div>
+        <footer className="p-16 border-t border-white/5 bg-[#050505] text-center">
+           <div className="flex flex-col items-center gap-4">
+              <div className="text-2xl font-black italic tracking-tighter">RGT <span className="text-indigo-600">MANGA</span></div>
+              <p className="text-zinc-700 font-black uppercase text-[9px] tracking-[0.5em]">2026 Premium Reading Experience</p>
+           </div>
         </footer>
       </div>
     </HashRouter>
