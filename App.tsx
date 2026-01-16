@@ -7,13 +7,38 @@ import { INITIAL_MANGA, ADMIN_CREDENTIALS, SUPABASE_CONFIG } from './constants';
 import { Navbar } from './components/Navbar';
 import { MangaCard } from './components/MangaCard';
 
-// Utility to convert file to base64
-const fileToBase64 = (file: File): Promise<string> => {
+// Utility to convert file to base64 with downscaling for very large images
+const processImageFile = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = error => reject(error);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX_DIM = 8192; // Safe limit for most browsers
+        let width = img.width;
+        let height = img.height;
+        
+        if (width > MAX_DIM || height > MAX_DIM) {
+          const ratio = Math.min(MAX_DIM / width, MAX_DIM / height);
+          width *= ratio;
+          height *= ratio;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject('Canvas context failed');
+        
+        ctx.drawImage(img, 0, 0, width, height);
+        // Use JPEG and 0.7 quality to significantly reduce base64 string size
+        resolve(canvas.toDataURL('image/jpeg', 0.7));
+      };
+      img.onerror = reject;
+      img.src = event.target?.result as string;
+    };
+    reader.onerror = reject;
   });
 };
 
@@ -30,7 +55,7 @@ const getSupabase = () => {
   return null;
 };
 
-// --- Image Editor (Fixed for Long Strips) ---
+// --- Image Editor (Optimized for Webtoons) ---
 const ImageEditor: React.FC<{
   src: string;
   onSave: (newSrc: string) => void;
@@ -46,15 +71,13 @@ const ImageEditor: React.FC<{
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
     
     setIsLoading(true);
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
-      // Browsers have limits for canvas dimensions (often around 16k or 32k px)
-      // Long manga strips can exceed this. We scale down if necessary.
       const MAX_CANVAS_DIM = 8192; 
       let scale = 1;
       
@@ -114,8 +137,18 @@ const ImageEditor: React.FC<{
     ctx.moveTo(x, y);
   };
 
+  const handleSave = () => {
+    if (!canvasRef.current) return;
+    try {
+      const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.7);
+      onSave(dataUrl);
+    } catch (e) {
+      alert("Зургийн хэмжээ хэтэрхий том байна.");
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-[1000] bg-black/95 flex flex-col p-4 md:p-10">
+    <div className="fixed inset-0 z-[2000] bg-black/95 flex flex-col p-4 md:p-10">
       <div className="max-w-5xl mx-auto w-full flex flex-col h-full gap-4">
         <div className="flex items-center justify-between bg-zinc-900 p-4 rounded-2xl border border-white/10 shadow-2xl">
           <div className="flex gap-2">
@@ -124,11 +157,14 @@ const ImageEditor: React.FC<{
           </div>
           <div className="flex gap-2">
             <button onClick={onClose} className="px-4 py-2 bg-white/5 rounded-xl text-xs font-bold">Болих</button>
-            <button onClick={() => canvasRef.current && onSave(canvasRef.current.toDataURL('image/jpeg', 0.8))} className="px-4 py-2 bg-indigo-600 rounded-xl text-xs font-bold shadow-lg shadow-indigo-600/20">Хадгалах</button>
+            <button onClick={handleSave} className="px-4 py-2 bg-indigo-600 rounded-xl text-xs font-bold shadow-lg shadow-indigo-600/20">Хадгалах</button>
           </div>
         </div>
         <div className="flex-1 overflow-auto bg-black rounded-[2rem] flex items-center justify-center p-4 border border-white/5 relative">
-          {isLoading && <div className="absolute inset-0 flex items-center justify-center text-indigo-500 font-black animate-pulse uppercase tracking-widest text-xs">Боловсруулж байна...</div>}
+          {isLoading && <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
+            <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+            <div className="text-indigo-500 font-black uppercase tracking-widest text-[10px] animate-pulse">Зургийг боловсруулж байна...</div>
+          </div>}
           <canvas ref={canvasRef} onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} className="max-w-full shadow-2xl rounded-lg" />
         </div>
       </div>
@@ -195,7 +231,7 @@ const MangaEditModal: React.FC<{
                   <button onClick={() => setIsEditingCover(true)} className="bg-indigo-600 px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl">Зураг засах</button>
                 </div>
               </div>
-              <input type="file" accept="image/*" onChange={async e => { if (e.target.files && e.target.files[0]) setCoverUrl(await fileToBase64(e.target.files[0])); }} className="hidden" id="edit-cover-file" />
+              <input type="file" accept="image/*" onChange={async e => { if (e.target.files && e.target.files[0]) setCoverUrl(await processImageFile(e.target.files[0])); }} className="hidden" id="edit-cover-file" />
               <label htmlFor="edit-cover-file" className="block bg-zinc-900 border border-white/5 p-4 rounded-2xl text-center cursor-pointer hover:bg-zinc-800 transition-all text-xs font-bold text-zinc-400">Шинэ зураг оруулах</label>
             </div>
           </div>
@@ -246,7 +282,7 @@ const ChapterEditorModal: React.FC<{ chapter: Chapter; onClose: () => void; onSa
               </div>
             </div>
             <div className="space-y-3">
-              <input type="file" multiple accept="image/*" id="ch-pages-edit" className="hidden" onChange={async e => { if (e.target.files) setPages([...pages, ...await Promise.all(Array.from(e.target.files).map(f => fileToBase64(f)))]); }} />
+              <input type="file" multiple accept="image/*" id="ch-pages-edit" className="hidden" onChange={async e => { if (e.target.files) setPages([...pages, ...await Promise.all(Array.from(e.target.files).map(f => processImageFile(f)))]); }} />
               <label htmlFor="ch-pages-edit" className="w-full flex items-center justify-center gap-2 bg-indigo-600/10 text-indigo-400 p-4 rounded-2xl cursor-pointer hover:bg-indigo-600/20 font-black text-xs uppercase tracking-widest transition-all">Хуудас нэмэх</label>
               <button onClick={handleSave} className="w-full bg-indigo-600 font-black py-5 rounded-2xl shadow-xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all">Хадгалах</button>
             </div>
@@ -375,7 +411,7 @@ const MangaDetail: React.FC<{
                 <input type="number" step="0.1" value={chNumber} onChange={e => setChNumber(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white font-bold outline-none focus:border-indigo-600" placeholder="Бүлэг #" required />
                 <input value={chTitle} onChange={e => setChTitle(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white font-bold outline-none focus:border-indigo-600" placeholder="Гарчиг" required />
               </div>
-              <input type="file" multiple accept="image/*" className="hidden" id="bulk-pages" onChange={async e => { if (e.target.files) setChPages(await Promise.all(Array.from(e.target.files).map(f => fileToBase64(f)))); }} />
+              <input type="file" multiple accept="image/*" className="hidden" id="bulk-pages" onChange={async e => { if (e.target.files) setChPages(await Promise.all(Array.from(e.target.files).map(f => processImageFile(f)))); }} />
               <label htmlFor="bulk-pages" className="block border-2 border-dashed border-white/5 p-16 rounded-[2rem] text-center cursor-pointer text-zinc-500 font-black uppercase text-xs hover:bg-white/5 transition-all"> 
                 {chPages.length > 0 ? `${chPages.length} PAGES SELECTED` : 'UPLOAD CHAPTER PAGES'} 
               </label>
@@ -509,7 +545,7 @@ const AdminPanel: React.FC<{
               <input value={newManga.title} onChange={e => setNewManga({...newManga, title: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600 transition-all" placeholder="Title" required />
               <input value={newManga.author} onChange={e => setNewManga({...newManga, author: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600 transition-all" placeholder="Author" required />
               <textarea value={newManga.description} onChange={e => setNewManga({...newManga, description: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white h-44 font-medium outline-none focus:border-indigo-600 transition-all" placeholder="Description" required />
-              <input type="file" onChange={async e => { if (e.target.files?.[0]) setNewManga({...newManga, coverUrl: await fileToBase64(e.target.files[0])}); }} className="hidden" id="add-m-c" />
+              <input type="file" onChange={async e => { if (e.target.files?.[0]) setNewManga({...newManga, coverUrl: await processImageFile(e.target.files[0])}); }} className="hidden" id="add-m-c" />
               <label htmlFor="add-m-c" className="block border-2 border-dashed border-white/5 p-12 rounded-[2rem] text-center cursor-pointer text-zinc-600 font-black uppercase text-xs hover:bg-white/5 transition-all"> {newManga.coverUrl ? 'COVER IMAGE READY' : 'SELECT MANGA COVER'} </label>
               <button className="w-full bg-indigo-600 py-6 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all">Register Manga</button>
             </div>
@@ -579,27 +615,23 @@ const App: React.FC = () => {
   const [authForm, setAuthForm] = useState({ username: '', password: '' });
   const [cloudStatus, setCloudStatus] = useState('Салсан');
 
+  // Fetch from cloud on mount
   useEffect(() => {
-    const saved = localStorage.getItem('manga_list');
-    if (saved) {
-      try {
-        setMangaList(JSON.parse(saved));
-      } catch (e) {
-        setMangaList(INITIAL_MANGA);
-      }
+    const savedManga = localStorage.getItem('manga_list');
+    if (savedManga) {
+      try { setMangaList(JSON.parse(savedManga)); } catch (e) { setMangaList(INITIAL_MANGA); }
     } else {
       setMangaList(INITIAL_MANGA);
     }
+    
+    // Immediate global fetch for admins and manga
     handleFetchFromCloud();
   }, []);
 
+  // Sync state to localstorage for fallback
   useEffect(() => {
     if (mangaList.length > 0) {
-      try {
-        localStorage.setItem('manga_list', JSON.stringify(mangaList));
-      } catch (e) {
-        console.warn("LocalStorage дүүрсэн байна. Зургуудыг Cloud-руу Sync хийнэ үү.");
-      }
+      try { localStorage.setItem('manga_list', JSON.stringify(mangaList)); } catch (e) {}
     }
   }, [mangaList]);
 
@@ -611,7 +643,7 @@ const App: React.FC = () => {
     localStorage.setItem('auth_state', JSON.stringify(authState));
   }, [authState]);
 
-  const handleSyncToCloud = async () => {
+  const handleSyncToCloud = async (overrideAdmins?: AdminAccount[]) => {
     const sb = getSupabase();
     if (!sb) {
       setCloudStatus('Supabase алдаа');
@@ -619,9 +651,16 @@ const App: React.FC = () => {
     }
     setCloudStatus('Syncing...');
     try {
+      const targetAdmins = overrideAdmins || admins;
       const mangaData = mangaList.map(m => ({ id: m.id, data: m }));
-      await sb.from('manga').upsert(mangaData);
-      await sb.from('config').upsert({ id: 'admins_list', data: admins });
+      
+      // Upsert Manga
+      if (mangaData.length > 0) {
+        await sb.from('manga').upsert(mangaData);
+      }
+      
+      // Upsert Global Config (Admins)
+      await sb.from('config').upsert({ id: 'admins_list', data: targetAdmins });
       
       setCloudStatus('Амжилттай хуулагдлаа');
       setTimeout(() => setCloudStatus('Амжилттай'), 3000);
@@ -654,12 +693,27 @@ const App: React.FC = () => {
     }
   };
 
+  const handleAddAdmin = async (newAdmin: AdminAccount) => {
+    const updatedAdmins = [...admins, newAdmin];
+    setAdmins(updatedAdmins);
+    // Trigger auto-sync so other admins can log in
+    await handleSyncToCloud(updatedAdmins);
+  };
+
+  const handleDeleteAdmin = async (username: string) => {
+    const updatedAdmins = admins.filter(a => a.username !== username);
+    setAdmins(updatedAdmins);
+    await handleSyncToCloud(updatedAdmins);
+  };
+
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
+    // Check against global list
     const foundAdmin = admins.find(a => a.username === authForm.username && a.password === authForm.password);
     if (foundAdmin) {
       setAuthState({ user: { username: foundAdmin.username, role: 'admin' }, isAuthenticated: true });
     } else {
+      // Default simple user role for non-admin credentials
       setAuthState({ user: { username: authForm.username, role: 'user' }, isAuthenticated: true });
     }
     setShowAuthModal(false); 
@@ -683,7 +737,7 @@ const App: React.FC = () => {
             <Route path="/" element={<Home mangaList={mangaList} />} />
             <Route path="/manga/:id" element={<MangaDetail mangaList={mangaList} user={authState.user} onUpdateManga={handleUpdateManga} onDeleteManga={handleDeleteManga} />} />
             <Route path="/reader/:mangaId/:chapterId" element={<Reader mangaList={mangaList} />} />
-            <Route path="/admin" element={authState.user?.role === 'admin' ? <AdminPanel mangaList={mangaList} admins={admins} onAddManga={m => setMangaList([m, ...mangaList])} onSyncToCloud={handleSyncToCloud} onFetchFromCloud={handleFetchFromCloud} onDeleteManga={handleDeleteManga} onAddAdmin={a => setAdmins([...admins, a])} onDeleteAdmin={u => setAdmins(admins.filter(a => a.username !== u))} cloudStatus={cloudStatus} currentUser={authState.user} /> : <Home mangaList={mangaList} />} />
+            <Route path="/admin" element={authState.user?.role === 'admin' ? <AdminPanel mangaList={mangaList} admins={admins} onAddManga={m => setMangaList([m, ...mangaList])} onSyncToCloud={() => handleSyncToCloud()} onFetchFromCloud={handleFetchFromCloud} onDeleteManga={handleDeleteManga} onAddAdmin={handleAddAdmin} onDeleteAdmin={handleDeleteAdmin} cloudStatus={cloudStatus} currentUser={authState.user} /> : <Home mangaList={mangaList} />} />
           </Routes>
         </main>
         {showAuthModal && (
