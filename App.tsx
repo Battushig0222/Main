@@ -39,7 +39,7 @@ const ImageEditor: React.FC<{
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [rotation, setRotation] = useState(0);
   const [isDrawingMode, setIsDrawingMode] = useState(false);
-  const [brushColor, setBrushColor] = useState('#3b82f6');
+  const [brushColor, setBrushColor] = useState('#6366f1');
   const [isDrawing, setIsDrawing] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
 
@@ -99,20 +99,20 @@ const ImageEditor: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 z-[300] bg-black/95 flex flex-col p-4">
+    <div className="fixed inset-0 z-[600] bg-black/95 flex flex-col p-4 md:p-10">
       <div className="max-w-5xl mx-auto w-full flex flex-col h-full gap-4">
-        <div className="flex items-center justify-between bg-zinc-900 p-4 rounded-2xl border border-white/10">
+        <div className="flex items-center justify-between bg-zinc-900 p-4 rounded-2xl border border-white/10 shadow-2xl">
           <div className="flex gap-2">
-            <button onClick={() => setIsDrawingMode(!isDrawingMode)} className={`px-4 py-2 rounded-xl text-xs font-bold ${isDrawingMode ? 'bg-blue-600' : 'bg-white/5'}`}>Зурах Mode</button>
+            <button onClick={() => setIsDrawingMode(!isDrawingMode)} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${isDrawingMode ? 'bg-indigo-600' : 'bg-white/5'}`}>Зурах Mode</button>
             <button onClick={() => setRotation(r => r + 90)} className="px-4 py-2 bg-white/5 rounded-xl text-xs font-bold">Эргүүлэх</button>
           </div>
           <div className="flex gap-2">
             <button onClick={onClose} className="px-4 py-2 bg-white/5 rounded-xl text-xs font-bold">Болих</button>
-            <button onClick={() => canvasRef.current && onSave(canvasRef.current.toDataURL('image/jpeg', 0.8))} className="px-4 py-2 bg-blue-600 rounded-xl text-xs font-bold">Хадгалах</button>
+            <button onClick={() => canvasRef.current && onSave(canvasRef.current.toDataURL('image/jpeg', 0.8))} className="px-4 py-2 bg-indigo-600 rounded-xl text-xs font-bold shadow-lg shadow-indigo-600/20">Хадгалах</button>
           </div>
         </div>
-        <div className="flex-1 overflow-auto bg-black rounded-3xl flex items-center justify-center p-4">
-          <canvas ref={canvasRef} onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} className="max-w-full max-h-full shadow-2xl" />
+        <div className="flex-1 overflow-auto bg-black rounded-[2rem] flex items-center justify-center p-4 border border-white/5">
+          <canvas ref={canvasRef} onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} className="max-w-full max-h-full shadow-2xl rounded-lg" />
         </div>
       </div>
     </div>
@@ -131,52 +131,72 @@ const MangaEditModal: React.FC<{
   const [description, setDescription] = useState(manga.description);
   const [coverUrl, setCoverUrl] = useState(manga.coverUrl);
   const [status, setStatus] = useState(manga.status);
+  const [isEditingCover, setIsEditingCover] = useState(false);
 
   const handleSave = () => {
     onSave({ ...manga, title, author, description, coverUrl, status });
   };
 
   return (
-    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
-      <div className="bg-[#111] w-full max-w-2xl p-8 md:p-10 rounded-[2.5rem] border border-white/10 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-300">
+    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl">
+      {isEditingCover && (
+        <ImageEditor 
+          src={coverUrl} 
+          onClose={() => setIsEditingCover(false)} 
+          onSave={(newSrc) => { setCoverUrl(newSrc); setIsEditingCover(false); }} 
+        />
+      )}
+      <div className="bg-[#0f0f0f] w-full max-w-2xl p-8 md:p-12 rounded-[2.5rem] border border-white/10 shadow-2xl space-y-8 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-300">
         <div className="flex justify-between items-center">
-          <h2 className="text-3xl font-black text-white">Манга Засах</h2>
-          <button onClick={onClose} className="text-gray-400 bg-white/5 w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10">&times;</button>
+          <h2 className="text-3xl font-black text-white italic">EDIT <span className="text-indigo-500">MANGA</span></h2>
+          <button onClick={onClose} className="text-zinc-500 bg-white/5 w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 hover:text-white transition-all">&times;</button>
         </div>
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-[10px] text-gray-500 font-black uppercase ml-1">Гарчиг</label>
-              <input value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white focus:border-blue-500 outline-none" />
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Манга нэр</label>
+              <input value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white focus:border-indigo-600 outline-none transition-all font-bold" />
             </div>
-            <div className="space-y-1">
-              <label className="text-[10px] text-gray-500 font-black uppercase ml-1">Зохиолч</label>
-              <input value={author} onChange={e => setAuthor(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white focus:border-blue-500 outline-none" />
+            <div className="space-y-2">
+              <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Зохиолч</label>
+              <input value={author} onChange={e => setAuthor(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white focus:border-indigo-600 outline-none transition-all font-bold" />
             </div>
           </div>
-          <div className="space-y-1">
-            <label className="text-[10px] text-gray-500 font-black uppercase ml-1">Төлөв</label>
-            <select value={status} onChange={e => setStatus(e.target.value as any)} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white outline-none">
+          <div className="space-y-2">
+            <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Статус</label>
+            <select value={status} onChange={e => setStatus(e.target.value as any)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white outline-none font-bold">
               <option value="Ongoing">Ongoing</option>
               <option value="Completed">Completed</option>
             </select>
           </div>
-          <div className="space-y-1">
-            <label className="text-[10px] text-gray-500 font-black uppercase ml-1">Тайлбар</label>
-            <textarea value={description} onChange={e => setDescription(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white h-32 outline-none focus:border-blue-500" />
+          <div className="space-y-2">
+            <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Тайлбар</label>
+            <textarea value={description} onChange={e => setDescription(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white h-32 outline-none focus:border-indigo-600 transition-all font-medium leading-relaxed" />
           </div>
-          <div className="space-y-1">
-            <label className="text-[10px] text-gray-500 font-black uppercase ml-1">Нүүр зураг</label>
-            <input type="file" accept="image/*" onChange={async e => { if (e.target.files && e.target.files[0]) setCoverUrl(await fileToBase64(e.target.files[0])); }} className="hidden" id="edit-cover-file" />
-            <label htmlFor="edit-cover-file" className="block border-2 border-dashed border-white/10 p-4 rounded-2xl text-center cursor-pointer hover:bg-white/5 transition-all">
-              <img src={coverUrl} className="h-24 mx-auto rounded-lg mb-2 shadow-lg" />
-              <span className="text-xs text-gray-500 font-bold">Зураг солих</span>
-            </label>
+          <div className="space-y-2">
+            <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Нүүр зураг</label>
+            <div className="flex flex-col gap-4">
+              <div className="relative group/cover w-full max-h-[200px] overflow-hidden rounded-2xl border border-white/5 shadow-inner bg-black">
+                <img src={coverUrl} className="w-full h-full object-contain opacity-60" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <button 
+                    onClick={() => setIsEditingCover(true)}
+                    className="bg-indigo-600 px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:scale-105 transition-transform"
+                  >
+                    Зураг засах
+                  </button>
+                </div>
+              </div>
+              <input type="file" accept="image/*" onChange={async e => { if (e.target.files && e.target.files[0]) setCoverUrl(await fileToBase64(e.target.files[0])); }} className="hidden" id="edit-cover-file" />
+              <label htmlFor="edit-cover-file" className="block bg-zinc-900 border border-white/5 p-4 rounded-2xl text-center cursor-pointer hover:bg-zinc-800 transition-all">
+                <span className="text-xs text-zinc-400 font-bold">Шинэ зураг оруулах</span>
+              </label>
+            </div>
           </div>
         </div>
-        <div className="flex flex-col gap-3 pt-4">
-          <button onClick={handleSave} className="w-full bg-blue-600 py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-blue-600/20 hover:bg-blue-700 transition-all">Хадгалах</button>
-          <button onClick={() => { if(window.confirm('Мангаг бүхэлд нь устгах уу?')) onDelete(); }} className="w-full bg-red-600/10 text-red-500 py-4 rounded-2xl font-black uppercase tracking-widest border border-red-600/20 hover:bg-red-600 hover:text-white transition-all">Устгах</button>
+        <div className="flex flex-col gap-3 pt-6 border-t border-white/5">
+          <button onClick={handleSave} className="w-full bg-indigo-600 py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all">Өөрчлөлтийг хадгалах</button>
+          <button onClick={() => { if(window.confirm('Мангаг бүхэлд нь устгах уу?')) onDelete(); }} className="w-full bg-red-600/10 text-red-500 py-4 rounded-2xl font-black uppercase tracking-widest border border-red-600/20 hover:bg-red-600 hover:text-white transition-all">Мангаг устгах</button>
         </div>
       </div>
     </div>
@@ -196,34 +216,70 @@ const ChapterEditorModal: React.FC<{ chapter: Chapter; onClose: () => void; onSa
     setPages(prev => [...prev, ...base64s]);
   };
 
+  const handleFinalSave = () => {
+    const parsedNum = parseFloat(num);
+    if (isNaN(parsedNum)) {
+      alert("Бүлгийн дугаар зөвхөн тоо байх ёстой.");
+      return;
+    }
+    onSave({ ...chapter, number: parsedNum, title, pages });
+  };
+
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/95 backdrop-blur-md">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl">
       {editingIdx !== null && <ImageEditor src={pages[editingIdx]} onClose={() => setEditingIdx(null)} onSave={src => { const p = [...pages]; p[editingIdx] = src; setPages(p); setEditingIdx(null); }} />}
-      <div className="bg-[#111] w-full max-w-6xl p-8 rounded-[2.5rem] border border-white/10 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-[#0f0f0f] w-full max-w-6xl p-8 rounded-[3rem] border border-white/10 shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-8">
-          <h2 className="text-3xl font-black text-white">Бүлэг Засах</h2>
-          <button onClick={onClose} className="text-gray-400 bg-white/5 w-10 h-10 flex items-center justify-center rounded-full">&times;</button>
+          <h2 className="text-3xl font-black text-white italic">EDIT <span className="text-indigo-500">CHAPTER</span></h2>
+          <button onClick={onClose} className="text-zinc-500 bg-white/5 w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 transition-all">&times;</button>
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
           <div className="space-y-6">
-            <div className="bg-white/5 p-6 rounded-2xl border border-white/10 space-y-4">
-              <input type="number" step="0.1" value={num} onChange={e => setNum(e.target.value)} className="w-full bg-black border border-white/10 rounded-xl p-3 text-white" placeholder="Бүлэг #" />
-              <input value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-black border border-white/10 rounded-xl p-3 text-white" placeholder="Гарчиг" />
+            <div className="bg-zinc-900/50 p-6 rounded-[2rem] border border-white/5 space-y-5">
+              <div className="space-y-1">
+                <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Бүлэг #</label>
+                <input 
+                  type="number" 
+                  step="0.1" 
+                  value={num} 
+                  onChange={e => setNum(e.target.value)} 
+                  className="w-full bg-black border border-white/5 rounded-xl p-3 text-white outline-none focus:border-indigo-600 font-bold" 
+                  placeholder="1.0" 
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Гарчиг</label>
+                <input 
+                  value={title} 
+                  onChange={e => setTitle(e.target.value)} 
+                  className="w-full bg-black border border-white/5 rounded-xl p-3 text-white outline-none focus:border-indigo-600 font-bold" 
+                  placeholder="Гарчиг" 
+                />
+              </div>
             </div>
-            <input type="file" multiple accept="image/*" id="chapter-add-pages" className="hidden" onChange={handleAddPages} />
-            <label htmlFor="chapter-add-pages" className="w-full flex items-center justify-center gap-2 bg-blue-600/10 text-blue-400 p-4 rounded-xl cursor-pointer hover:bg-blue-600/20">Зураг нэмэх</label>
-            <button onClick={() => onSave({ ...chapter, number: parseFloat(num), title, pages })} className="w-full bg-blue-600 font-black py-5 rounded-2xl shadow-xl shadow-blue-600/20">Хадгалах</button>
+            <div className="space-y-3">
+              <input type="file" multiple accept="image/*" id="chapter-add-pages" className="hidden" onChange={handleAddPages} />
+              <label htmlFor="chapter-add-pages" className="w-full flex items-center justify-center gap-2 bg-indigo-600/10 text-indigo-400 p-4 rounded-2xl cursor-pointer hover:bg-indigo-600/20 transition-all font-black text-xs uppercase tracking-widest">Хуудас нэмэх</label>
+              <button onClick={handleFinalSave} className="w-full bg-indigo-600 font-black py-5 rounded-2xl shadow-xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all uppercase tracking-widest text-xs">Хадгалах</button>
+            </div>
           </div>
-          <div className="lg:col-span-3 grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-black/40 rounded-3xl min-h-[40vh] content-start">
+          <div className="lg:col-span-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 p-6 bg-black rounded-[2rem] min-h-[50vh] content-start border border-white/5">
             {pages.map((p, i) => (
-              <div key={i} className="relative group aspect-[2/3] bg-zinc-900 rounded-xl overflow-hidden border border-white/5">
+              <div key={i} className="relative group aspect-[2/3] bg-zinc-900 rounded-2xl overflow-hidden border border-white/5 transition-transform hover:scale-[1.02]">
                 <img src={p} className="w-full h-full object-cover" />
                 <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-2 transition-opacity">
-                  <button onClick={() => setEditingIdx(i)} className="bg-blue-600 text-[10px] font-bold px-4 py-1.5 rounded-full">Засах</button>
-                  <button onClick={() => setPages(pages.filter((_, idx) => idx !== i))} className="bg-red-600 text-[10px] font-bold px-4 py-1.5 rounded-full">Устгах</button>
+                  <button onClick={() => setEditingIdx(i)} className="bg-indigo-600 text-[10px] font-black uppercase tracking-widest px-5 py-2 rounded-full shadow-lg">Засах</button>
+                  <button onClick={() => setPages(pages.filter((_, idx) => idx !== i))} className="bg-red-600 text-[10px] font-black uppercase tracking-widest px-5 py-2 rounded-full shadow-lg">Устгах</button>
                 </div>
+                <div className="absolute top-2 left-2 bg-black/60 px-2 py-1 rounded text-[10px] font-black text-white">{i + 1}</div>
               </div>
             ))}
+            {pages.length === 0 && (
+              <div className="col-span-full h-60 flex flex-col items-center justify-center text-zinc-600 gap-4 border-2 border-dashed border-white/5 rounded-[2rem]">
+                <svg className="w-12 h-12 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                <span className="font-bold uppercase tracking-widest text-xs">Зураг оруулаагүй байна.</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -238,22 +294,29 @@ const Home: React.FC<{ mangaList: Manga[] }> = ({ mangaList }) => {
 
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-8">
-      <div className="mb-12 space-y-4">
-        <h1 className="text-4xl md:text-5xl font-black tracking-tight">Шинэ Манганууд</h1>
-        <div className="relative max-w-xl">
+      <div className="mb-16 space-y-6 pt-10">
+        <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white">
+          DISCOVER <br/> <span className="text-indigo-600">NEW STORIES</span>
+        </h1>
+        <div className="relative max-w-2xl">
           <input 
             value={search} 
             onChange={e => setSearch(e.target.value)} 
-            placeholder="Хайх..." 
-            className="w-full bg-zinc-900 border border-white/10 rounded-2xl p-4 pl-12 text-white font-medium outline-none focus:border-blue-600 transition-all"
+            placeholder="Хайх (Нэр эсвэл Зохиолч)..." 
+            className="w-full bg-[#0f0f0f] border border-white/5 rounded-[1.5rem] p-5 pl-14 text-white font-bold outline-none focus:border-indigo-600 transition-all shadow-xl"
           />
-          <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          <svg className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
         </div>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6 md:gap-8">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6 md:gap-10">
         {filtered.map(manga => <MangaCard key={manga.id} manga={manga} />)}
       </div>
-      {filtered.length === 0 && <div className="p-20 text-center text-gray-600 font-bold">Ийм нэртэй манга олдсонгүй.</div>}
+      {filtered.length === 0 && (
+        <div className="p-32 text-center">
+            <div className="text-zinc-700 font-black text-4xl uppercase tracking-tighter opacity-30">No results found</div>
+            <p className="text-zinc-500 mt-2 font-bold uppercase text-xs tracking-widest">Try another search term</p>
+        </div>
+      )}
     </div>
   );
 };
@@ -277,7 +340,7 @@ const MangaDetail: React.FC<{
   const [editingManga, setEditingManga] = useState(false);
 
   const isAdmin = user?.username === 'Battushig';
-  if (!manga) return <div className="p-20 text-center">Манга олдсонгүй.</div>;
+  if (!manga) return <div className="p-40 text-center font-black text-4xl opacity-20">MANGA NOT FOUND</div>;
 
   const handleAddChapterSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -287,71 +350,75 @@ const MangaDetail: React.FC<{
   };
 
   return (
-    <div className="max-w-7xl mx-auto p-4 md:p-10">
+    <div className="max-w-7xl mx-auto p-4 md:p-16">
       {editingManga && <MangaEditModal manga={manga} onClose={() => setEditingManga(false)} onSave={u => { onUpdateManga(u); setEditingManga(false); }} onDelete={() => { onDeleteManga(manga.id); navigate('/'); }} />}
       {editingChapter && <ChapterEditorModal chapter={editingChapter} onClose={() => setEditingChapter(null)} onSave={u => { onUpdateManga({ ...manga, chapters: manga.chapters.map(c => c.id === u.id ? u : c) }); setEditingChapter(null); }} />}
 
-      <div className="flex flex-col lg:flex-row gap-12 lg:gap-20">
-        <div className="w-full lg:w-96 shrink-0 space-y-8">
-          <div className="relative group">
-            <img src={manga.coverUrl} className="w-full rounded-[2.5rem] shadow-2xl border border-white/5 transition-all group-hover:brightness-50" />
+      <div className="flex flex-col lg:flex-row gap-16 lg:gap-24">
+        <div className="w-full lg:w-[400px] shrink-0 space-y-10">
+          <div className="relative group/main">
+            <img src={manga.coverUrl} className="w-full rounded-[3rem] shadow-2xl border border-white/5 transition-all group-hover/main:brightness-50" />
             {isAdmin && (
-              <button onClick={() => setEditingManga(true)} className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 rounded-[2.5rem] font-black uppercase tracking-widest text-sm">
-                Манга засах
+              <button onClick={() => setEditingManga(true)} className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/main:opacity-100 transition-opacity bg-black/40 rounded-[3rem] font-black uppercase tracking-[0.2em] text-xs">
+                Edit Manga
               </button>
             )}
           </div>
-          <div className="bg-zinc-900/40 p-8 rounded-[2rem] border border-white/5 space-y-4 backdrop-blur-sm">
-            <div className="flex justify-between font-bold"><span className="text-gray-500 uppercase text-[10px] tracking-widest">Зохиолч</span><span className="text-sm">{manga.author}</span></div>
-            <div className="flex justify-between font-bold"><span className="text-gray-500 uppercase text-[10px] tracking-widest">Төлөв</span><span className="text-sm text-blue-400">{manga.status}</span></div>
+          <div className="bg-[#0f0f0f] p-8 md:p-10 rounded-[2.5rem] border border-white/5 space-y-6 shadow-xl">
+            <div className="flex justify-between font-bold"><span className="text-zinc-600 uppercase text-[10px] tracking-[0.2em]">Author</span><span className="text-sm text-white">{manga.author}</span></div>
+            <div className="flex justify-between font-bold"><span className="text-zinc-600 uppercase text-[10px] tracking-[0.2em]">Status</span><span className="text-sm text-indigo-400">{manga.status}</span></div>
+            <div className="flex justify-between font-bold"><span className="text-zinc-600 uppercase text-[10px] tracking-[0.2em]">Rating</span><span className="text-sm text-white">⭐ {manga.rating}</span></div>
           </div>
         </div>
-        <div className="flex-1 space-y-12">
-          <div className="space-y-6">
-            <div className="flex justify-between items-start flex-wrap gap-4">
-              <h1 className="text-5xl md:text-7xl font-black leading-tight">{manga.title}</h1>
+        <div className="flex-1 space-y-14">
+          <div className="space-y-8">
+            <div className="flex justify-between items-start flex-wrap gap-6">
+              <h1 className="text-6xl md:text-8xl font-black leading-[0.9] tracking-tighter text-white">{manga.title}</h1>
               {isAdmin && (
-                <button onClick={() => setShowAddChapter(!showAddChapter)} className="bg-blue-600 px-8 py-4 rounded-full font-black text-xs uppercase shadow-lg shadow-blue-600/30 transition-transform active:scale-95">
-                  {showAddChapter ? 'Болих' : 'Бүлэг нэмэх'}
+                <button onClick={() => setShowAddChapter(!showAddChapter)} className="bg-indigo-600 px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-indigo-600/30 hover:bg-indigo-500 transition-transform active:scale-95">
+                  {showAddChapter ? 'Болих' : 'Add Chapter'}
                 </button>
               )}
             </div>
-            <p className="text-gray-400 text-lg md:text-xl leading-relaxed max-w-3xl">{manga.description}</p>
+            <p className="text-zinc-400 text-lg md:text-xl leading-relaxed max-w-3xl font-medium">{manga.description}</p>
           </div>
 
           {showAddChapter && (
-            <form onSubmit={handleAddChapterSubmit} className="p-8 md:p-10 bg-zinc-900 rounded-[2.5rem] space-y-6 border border-white/5 animate-slide-up">
-              <div className="grid md:grid-cols-2 gap-4">
-                <input type="number" step="0.1" value={chNumber} onChange={e => setChNumber(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white" placeholder="Бүлэг #" required />
-                <input value={chTitle} onChange={e => setChTitle(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white" placeholder="Гарчиг" required />
+            <form onSubmit={handleAddChapterSubmit} className="p-10 bg-[#0f0f0f] rounded-[3rem] space-y-8 border border-white/5 animate-slide-up shadow-2xl">
+              <h3 className="text-xl font-black italic">NEW <span className="text-indigo-500">CHAPTER</span></h3>
+              <div className="grid md:grid-cols-2 gap-6">
+                <input type="number" step="0.1" value={chNumber} onChange={e => setChNumber(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white font-bold focus:border-indigo-600 outline-none" placeholder="Бүлэг #" required />
+                <input value={chTitle} onChange={e => setChTitle(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white font-bold focus:border-indigo-600 outline-none" placeholder="Гарчиг" required />
               </div>
               <input type="file" multiple accept="image/*" className="hidden" id="chapter-pages-bulk" onChange={async e => { if (e.target.files) setChPages(await Promise.all(Array.from(e.target.files).map(f => fileToBase64(f)))); }} />
-              <label htmlFor="chapter-pages-bulk" className="block border-2 border-dashed border-white/10 p-10 rounded-3xl text-center cursor-pointer hover:bg-white/5 transition-all text-gray-500 font-bold">Зургууд Сонгох ({chPages.length})</label>
-              <button className="w-full bg-blue-600 py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-blue-600/30">Бүлэг үүсгэх</button>
+              <label htmlFor="chapter-pages-bulk" className="block border-2 border-dashed border-white/5 p-16 rounded-[2rem] text-center cursor-pointer hover:bg-white/5 transition-all text-zinc-500 font-black uppercase text-xs tracking-widest">
+                {chPages.length > 0 ? `${chPages.length} PAGES SELECTED` : 'UPLOAD PAGES'}
+              </label>
+              <button className="w-full bg-indigo-600 py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all">Create Chapter</button>
             </form>
           )}
 
-          <div className="space-y-6">
-            <h2 className="text-3xl font-black flex items-center gap-4"><span className="w-2 h-10 bg-blue-600 rounded-full"></span>Бүлгүүд</h2>
-            <div className="grid gap-3">
+          <div className="space-y-8">
+            <h2 className="text-4xl font-black italic flex items-center gap-6"><span className="w-3 h-12 bg-indigo-600 rounded-full"></span>CHAPTERS</h2>
+            <div className="grid gap-4">
               {[...manga.chapters].sort((a,b) => b.number - a.number).map(chapter => (
-                <div key={chapter.id} className="bg-white/5 hover:bg-white/10 p-6 rounded-[2rem] flex items-center justify-between group transition-all border border-white/5">
-                  <div onClick={() => navigate(`/reader/${manga.id}/${chapter.id}`)} className="flex-1 cursor-pointer flex items-center gap-6">
-                    <div className="text-blue-500 font-black text-2xl italic min-w-[70px]">Ch. {chapter.number}</div>
+                <div key={chapter.id} className="bg-[#0f0f0f] hover:bg-zinc-900 p-6 md:p-8 rounded-[2.5rem] flex items-center justify-between group transition-all border border-white/5 hover:border-indigo-500/30">
+                  <div onClick={() => navigate(`/reader/${manga.id}/${chapter.id}`)} className="flex-1 cursor-pointer flex items-center gap-8">
+                    <div className="text-indigo-600 font-black text-3xl italic min-w-[80px]">#{chapter.number}</div>
                     <div>
-                      <div className="font-black text-xl text-gray-100">{chapter.title}</div>
-                      <div className="text-[10px] text-gray-600 uppercase font-black mt-1 tracking-widest">{chapter.createdAt} • {chapter.pages.length} хуудас</div>
+                      <div className="font-black text-xl text-white group-hover:text-indigo-400 transition-colors">{chapter.title}</div>
+                      <div className="text-[10px] text-zinc-600 uppercase font-black mt-1 tracking-widest">{chapter.createdAt} • {chapter.pages.length} PAGES</div>
                     </div>
                   </div>
                   {isAdmin && (
-                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                      <button onClick={() => setEditingChapter(chapter)} className="p-3 bg-blue-600/10 text-blue-500 rounded-2xl hover:bg-blue-600 hover:text-white transition-all">Засах</button>
-                      <button onClick={() => window.confirm('Бүлгийг устгах уу?') && onUpdateManga({ ...manga, chapters: manga.chapters.filter(c => c.id !== chapter.id) })} className="p-3 bg-red-600/10 text-red-500 rounded-2xl hover:bg-red-600 hover:text-white transition-all">Устгах</button>
+                    <div className="flex gap-3 opacity-0 group-hover:opacity-100 transition-all">
+                      <button onClick={() => setEditingChapter(chapter)} className="p-4 bg-indigo-600/10 text-indigo-500 rounded-2xl hover:bg-indigo-600 hover:text-white transition-all font-black text-[10px] uppercase">Edit</button>
+                      <button onClick={() => window.confirm('Бүлгийг устгах уу?') && onUpdateManga({ ...manga, chapters: manga.chapters.filter(c => c.id !== chapter.id) })} className="p-4 bg-red-600/10 text-red-500 rounded-2xl hover:bg-red-600 hover:text-white transition-all font-black text-[10px] uppercase">Delete</button>
                     </div>
                   )}
                 </div>
               ))}
-              {manga.chapters.length === 0 && <div className="p-12 text-center text-gray-600 font-bold border-2 border-dashed border-white/5 rounded-3xl">Бүлэг нэмэгдээгүй байна.</div>}
+              {manga.chapters.length === 0 && <div className="p-20 text-center text-zinc-700 font-black text-xl uppercase tracking-widest opacity-20 border-2 border-dashed border-white/5 rounded-[3rem]">No chapters yet</div>}
             </div>
           </div>
         </div>
@@ -365,19 +432,23 @@ const Reader: React.FC<{ mangaList: Manga[] }> = ({ mangaList }) => {
   const { mangaId, chapterId } = useParams<{ mangaId: string, chapterId: string }>();
   const manga = mangaList.find(m => m.id === mangaId);
   const chapter = manga?.chapters.find(c => c.id === chapterId);
-  if (!chapter) return <div className="p-20 text-center">Бүлэг олдсонгүй.</div>;
+  if (!chapter) return <div className="p-40 text-center font-black opacity-20 text-4xl">CHAPTER NOT FOUND</div>;
   return (
-    <div className="bg-black min-h-screen">
-      <div className="max-w-4xl mx-auto pb-20">
-        <div className="sticky top-0 bg-black/95 backdrop-blur-xl p-6 flex items-center justify-between z-50 border-b border-white/5">
-          <button onClick={() => window.history.back()} className="p-3 bg-white/5 rounded-full hover:bg-white/10 transition-all">←</button>
+    <div className="bg-[#050505] min-h-screen">
+      <div className="max-w-4xl mx-auto pb-32">
+        <div className="sticky top-0 bg-[#050505]/90 backdrop-blur-2xl p-6 flex items-center justify-between z-50 border-b border-white/5">
+          <button onClick={() => window.history.back()} className="p-4 bg-white/5 rounded-2xl hover:bg-white/10 transition-all text-white">←</button>
           <div className="text-center">
-            <h2 className="font-black text-lg text-white">{manga?.title}</h2>
-            <p className="text-[10px] text-blue-500 font-black uppercase tracking-widest">Chapter {chapter.number}</p>
+            <h2 className="font-black text-lg text-white truncate max-w-[200px]">{manga?.title}</h2>
+            <p className="text-[10px] text-indigo-500 font-black uppercase tracking-[0.3em]">Chapter {chapter.number}</p>
           </div>
-          <span className="text-[10px] bg-white/5 px-4 py-2 rounded-full font-black text-gray-500">{chapter.pages.length} хуудас</span>
+          <span className="text-[10px] bg-indigo-600/10 border border-indigo-600/20 px-4 py-2 rounded-full font-black text-indigo-400 uppercase tracking-widest">{chapter.pages.length} PAGES</span>
         </div>
-        <div className="flex flex-col gap-1 mt-4">{chapter.pages.map((p, i) => <img key={i} src={p} className="w-full h-auto block" loading="lazy" />)}</div>
+        <div className="flex flex-col gap-1 mt-6">{chapter.pages.map((p, i) => <img key={i} src={p} className="w-full h-auto block shadow-2xl" loading="lazy" alt={`Page ${i+1}`} />)}</div>
+        <div className="mt-20 p-10 bg-[#0f0f0f] rounded-[3rem] border border-white/5 text-center space-y-4">
+             <div className="text-zinc-600 font-black uppercase text-xs tracking-widest">You have reached the end of the chapter</div>
+             <button onClick={() => window.history.back()} className="bg-indigo-600 px-10 py-4 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-indigo-600/20">Go Back</button>
+        </div>
       </div>
     </div>
   );
@@ -405,44 +476,52 @@ const AdminPanel: React.FC<{
   };
 
   return (
-    <div className="max-w-6xl mx-auto p-4 md:p-10 space-y-12">
-      <div className="bg-zinc-900 p-8 md:p-10 rounded-[2.5rem] border border-white/5 shadow-2xl space-y-8 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/5 blur-[100px] -z-10"></div>
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div><h1 className="text-3xl font-black text-white">Админ Удирдах Хэсэг</h1><p className="text-gray-500 text-sm">Cloud Sync болон дата менежмент.</p></div>
-          <div className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest ${cloudStatus.includes('Амжилттай') ? 'bg-green-600/20 text-green-400' : 'bg-yellow-600/20 text-yellow-400'}`}>Status: {cloudStatus}</div>
+    <div className="max-w-7xl mx-auto p-4 md:p-16 space-y-20">
+      <div className="bg-[#0f0f0f] p-10 md:p-16 rounded-[3.5rem] border border-white/5 shadow-2xl space-y-12 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-600/10 blur-[150px] -z-10"></div>
+        <div className="flex items-center justify-between flex-wrap gap-8">
+          <div>
+              <h1 className="text-5xl font-black text-white italic tracking-tighter">ADMIN <span className="text-indigo-500">DASHBOARD</span></h1>
+              <p className="text-zinc-500 font-bold text-sm uppercase tracking-widest mt-2">Manage your collection and sync to cloud.</p>
+          </div>
+          <div className={`px-6 py-3 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${cloudStatus.includes('Амжилттай') ? 'bg-indigo-600/10 text-indigo-400 border-indigo-600/20' : 'bg-zinc-900 text-zinc-500 border-white/5'}`}>Status: {cloudStatus}</div>
         </div>
-        <div className="flex flex-wrap gap-4 pt-4 border-t border-white/5">
-          <button onClick={onSyncToCloud} className="bg-blue-600 hover:bg-blue-700 px-8 py-3 rounded-2xl font-bold shadow-lg shadow-blue-600/20 transition-all">Cloud-руу хуулах (Sync Up)</button>
-          <button onClick={onFetchFromCloud} className="bg-zinc-800 hover:bg-zinc-700 px-8 py-3 rounded-2xl font-bold transition-all">Cloud-аас татах (Sync Down)</button>
+        <div className="flex flex-wrap gap-4 pt-10 border-t border-white/5">
+          <button onClick={onSyncToCloud} className="bg-indigo-600 hover:bg-indigo-500 px-10 py-4 rounded-[1.5rem] font-black uppercase tracking-widest text-xs shadow-2xl shadow-indigo-600/30 transition-all">Upload to Cloud</button>
+          <button onClick={onFetchFromCloud} className="bg-zinc-900 hover:bg-zinc-800 border border-white/5 px-10 py-4 rounded-[1.5rem] font-black uppercase tracking-widest text-xs transition-all">Fetch from Cloud</button>
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-10">
-        <form onSubmit={handleSubmit} className="space-y-8 bg-zinc-900 p-10 rounded-[2.5rem] border border-white/5 shadow-2xl">
-          <h2 className="text-2xl font-black">Шинэ Манга Нэмэх</h2>
-          <div className="space-y-4">
-            <input value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white focus:border-blue-600 outline-none" placeholder="Гарчиг" required />
-            <input value={author} onChange={e => setAuthor(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white focus:border-blue-600 outline-none" placeholder="Зохиолч" required />
-            <textarea value={description} onChange={e => setDescription(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white h-40 focus:border-blue-600 outline-none" placeholder="Тайлбар" required />
+      <div className="grid lg:grid-cols-2 gap-16">
+        <form onSubmit={handleSubmit} className="space-y-10 bg-[#0f0f0f] p-10 md:p-14 rounded-[3.5rem] border border-white/5 shadow-2xl">
+          <h2 className="text-3xl font-black italic">ADD <span className="text-indigo-500">MANGA</span></h2>
+          <div className="space-y-6">
+            <input value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold focus:border-indigo-600 outline-none transition-all" placeholder="Title" required />
+            <input value={author} onChange={e => setAuthor(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold focus:border-indigo-600 outline-none transition-all" placeholder="Author" required />
+            <textarea value={description} onChange={e => setDescription(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white h-44 focus:border-indigo-600 outline-none transition-all font-medium" placeholder="Description" required />
             <input type="file" accept="image/*" onChange={async e => { if (e.target.files && e.target.files[0]) setCoverUrl(await fileToBase64(e.target.files[0])); }} className="hidden" id="admin-cover-new" />
-            <label htmlFor="admin-cover-new" className="block border-2 border-dashed border-white/10 p-8 rounded-[2rem] text-center cursor-pointer hover:bg-white/5 transition-all text-gray-500 font-bold">{coverUrl ? 'Зураг сонгогдлоо' : '+ Нүүр зураг'}</label>
-            <button className="w-full bg-blue-600 py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-xl shadow-blue-600/20">Бүртгэх</button>
+            <label htmlFor="admin-cover-new" className="block border-2 border-dashed border-white/5 p-12 rounded-[2rem] text-center cursor-pointer hover:bg-zinc-900 transition-all text-zinc-500 font-black uppercase text-[10px] tracking-[0.3em] leading-loose">
+                {coverUrl ? 'COVER SELECTED' : 'CHOOSE COVER IMAGE'}
+            </label>
+            <button className="w-full bg-indigo-600 py-6 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-indigo-600/40 hover:bg-indigo-500 transition-all text-sm">Register Manga</button>
           </div>
         </form>
 
-        <div className="bg-zinc-900 p-10 rounded-[2.5rem] border border-white/5 shadow-2xl space-y-8">
-          <h2 className="text-2xl font-black">Манга Удирдах ({mangaList.length})</h2>
-          <div className="grid gap-4 max-h-[600px] overflow-y-auto pr-2 scrollbar-hide">
+        <div className="bg-[#0f0f0f] p-10 md:p-14 rounded-[3.5rem] border border-white/5 shadow-2xl space-y-10">
+          <h2 className="text-3xl font-black italic">MANAGE <span className="text-indigo-500">RESOURCES</span></h2>
+          <div className="grid gap-5 max-h-[700px] overflow-y-auto pr-4 scrollbar-hide">
             {mangaList.map(m => (
-              <div key={m.id} className="flex items-center justify-between p-4 bg-black/40 rounded-3xl border border-white/5 group hover:border-blue-500/30 transition-all">
-                <div className="flex items-center gap-4">
-                  <img src={m.coverUrl} className="w-12 h-16 object-cover rounded-xl shadow-lg" />
-                  <div><div className="font-bold text-sm">{m.title}</div><div className="text-[10px] text-gray-500 font-black uppercase mt-1">{m.chapters.length} бүлэг</div></div>
+              <div key={m.id} className="flex items-center justify-between p-5 bg-black rounded-[2rem] border border-white/5 group hover:border-indigo-600/40 transition-all">
+                <div className="flex items-center gap-6">
+                  <img src={m.coverUrl} className="w-16 h-20 object-cover rounded-xl shadow-lg border border-white/10" />
+                  <div>
+                      <div className="font-black text-white text-lg group-hover:text-indigo-400 transition-colors">{m.title}</div>
+                      <div className="text-[10px] text-zinc-500 font-black uppercase mt-1 tracking-widest">{m.chapters.length} CHAPTERS</div>
+                  </div>
                 </div>
-                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={() => navigate(`/manga/${m.id}`)} className="p-3 bg-blue-600/10 text-blue-400 rounded-xl hover:bg-blue-600 hover:text-white transition-all">Edit</button>
-                  <button onClick={() => { if(window.confirm('Устгах уу?')) onDeleteManga(m.id); }} className="p-3 bg-red-600/10 text-red-500 rounded-xl hover:bg-red-600 hover:text-white transition-all">Delete</button>
+                <div className="flex gap-3 opacity-0 group-hover:opacity-100 transition-all">
+                  <button onClick={() => navigate(`/manga/${m.id}`)} className="p-4 bg-indigo-600/10 text-indigo-400 rounded-2xl hover:bg-indigo-600 hover:text-white transition-all font-black text-[10px] uppercase">Edit</button>
+                  <button onClick={() => { if(window.confirm('Устгах уу?')) onDeleteManga(m.id); }} className="p-4 bg-red-600/10 text-red-500 rounded-2xl hover:bg-red-600 hover:text-white transition-all font-black text-[10px] uppercase">Del</button>
                 </div>
               </div>
             ))}
@@ -481,7 +560,7 @@ const App: React.FC = () => {
   const handleSyncToCloud = async () => {
     const sb = getSupabase();
     if (!sb) return;
-    setCloudStatus('Хуулж байна...');
+    setCloudStatus('Syncing...');
     try {
       for (const manga of mangaList) {
         const { error } = await sb.from('manga').upsert({ id: manga.id, data: manga });
@@ -490,7 +569,7 @@ const App: React.FC = () => {
       setCloudStatus('Амжилттай хуулагдлаа');
       alert("Бүх мэдээлэл Cloud-руу хадгалагдлаа!");
     } catch (e: any) {
-      setCloudStatus('Алдаа: ' + e.message);
+      setCloudStatus('Error: ' + e.message);
     }
   };
 
@@ -505,7 +584,7 @@ const App: React.FC = () => {
         setCloudStatus('Амжилттай татлаа');
       }
     } catch (e: any) {
-      setCloudStatus('Алдаа: ' + e.message);
+      setCloudStatus('Error: ' + e.message);
     }
   };
 
@@ -525,9 +604,9 @@ const App: React.FC = () => {
 
   return (
     <HashRouter>
-      <div className="min-h-screen flex flex-col selection:bg-blue-600 selection:text-white">
+      <div className="min-h-screen flex flex-col selection:bg-indigo-600 selection:text-white">
         <Navbar user={authState.user} onLogout={() => setAuthState({ user: null, isAuthenticated: false })} onOpenAuth={() => setShowAuthModal(true)} />
-        <main className="flex-1">
+        <main className="flex-1 bg-[#050505]">
           <Routes>
             <Route path="/" element={<Home mangaList={mangaList} />} />
             <Route path="/manga/:id" element={<MangaDetail mangaList={mangaList} user={authState.user} onUpdateManga={handleUpdateManga} onDeleteManga={handleDeleteManga} />} />
@@ -536,22 +615,33 @@ const App: React.FC = () => {
           </Routes>
         </main>
         {showAuthModal && (
-          <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl">
-            <div className="bg-zinc-900 w-full max-w-md p-10 rounded-[2.5rem] border border-white/5 shadow-2xl scale-in">
-              <h2 className="text-3xl font-black mb-8">Нэвтрэх</h2>
-              <form onSubmit={handleLogin} className="space-y-6">
-                <input value={authForm.username} onChange={e => setAuthForm({ ...authForm, username: e.target.value })} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-bold outline-none focus:border-blue-600 transition-all" placeholder="Username" required />
-                <input type="password" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-bold outline-none focus:border-blue-600 transition-all" placeholder="Password" required />
-                <button className="w-full bg-blue-600 py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-blue-600/20 active:scale-95 transition-all">Үргэлжлүүлэх</button>
+          <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/95 backdrop-blur-3xl">
+            <div className="bg-[#0f0f0f] w-full max-w-md p-12 rounded-[3.5rem] border border-white/5 shadow-2xl scale-in">
+              <h2 className="text-4xl font-black mb-10 text-white italic tracking-tighter">SIGN <span className="text-indigo-500">IN</span></h2>
+              <form onSubmit={handleLogin} className="space-y-8">
+                <div className="space-y-2">
+                    <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Username</label>
+                    <input value={authForm.username} onChange={e => setAuthForm({ ...authForm, username: e.target.value })} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600 transition-all" placeholder="Enter username" required />
+                </div>
+                <div className="space-y-2">
+                    <label className="text-[10px] text-zinc-500 font-black uppercase tracking-widest ml-1">Password</label>
+                    <input type="password" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600 transition-all" placeholder="Enter password" required />
+                </div>
+                <button className="w-full bg-indigo-600 py-5 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-indigo-600/40 active:scale-95 transition-all text-xs">Authorize</button>
               </form>
-              <button onClick={() => setShowAuthModal(false)} className="mt-6 w-full text-xs text-gray-600 font-bold hover:text-white transition-all uppercase tracking-widest">Болих</button>
+              <button onClick={() => setShowAuthModal(false)} className="mt-8 w-full text-[10px] text-zinc-600 font-black hover:text-white transition-all uppercase tracking-[0.3em]">Cancel</button>
             </div>
           </div>
         )}
-        <footer className="mt-20 p-12 text-center border-t border-white/5 opacity-50">
-          <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8 text-[10px] font-black uppercase tracking-[0.2em]">
-            <div>MANGA<span className="text-blue-600">SPHERE</span> MN</div>
-            <p>© 2025 Бүх эрх хамгаалагдсан.</p>
+        <footer className="mt-20 p-16 text-center border-t border-white/5 bg-[#050505]">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-10">
+            <div className="flex flex-col items-start gap-2">
+                <div className="text-2xl font-black text-white italic tracking-tighter">RGT<span className="text-indigo-600">MANGA</span></div>
+                <p className="text-zinc-600 font-bold uppercase text-[9px] tracking-[0.4em]">The Ultimate Reading Experience</p>
+            </div>
+            <div className="text-zinc-700 font-black uppercase text-[10px] tracking-[0.3em]">
+                © 2026 RGT MEDIA GROUP. ALL RIGHTS RESERVED.
+            </div>
           </div>
         </footer>
       </div>

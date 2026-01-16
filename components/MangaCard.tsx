@@ -13,28 +13,30 @@ export const MangaCard: React.FC<MangaCardProps> = ({ manga }) => {
   return (
     <div 
       onClick={() => navigate(`/manga/${manga.id}`)}
-      className="group relative bg-[#1a1a1a] rounded-lg overflow-hidden cursor-pointer transition-transform hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-900/20"
+      className="group relative bg-[#0f0f0f] rounded-2xl overflow-hidden cursor-pointer transition-all hover:-translate-y-2 hover:shadow-2xl hover:shadow-indigo-500/10 border border-white/5"
     >
-      <div className="aspect-[2/3] overflow-hidden">
+      <div className="aspect-[2/3] overflow-hidden relative">
         <img 
           src={manga.coverUrl} 
           alt={manga.title} 
-          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
+          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
         />
-        <div className="absolute top-2 right-2 bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded">
+        <div className="absolute top-3 right-3 bg-indigo-600 text-white text-[10px] font-black px-2 py-1 rounded-lg shadow-lg">
           {manga.rating}
+        </div>
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4">
+           <span className="text-[10px] text-indigo-400 font-black uppercase tracking-widest mb-1">Унших</span>
         </div>
       </div>
       <div className="p-4">
-        <h3 className="text-sm font-bold truncate group-hover:text-blue-400">{manga.title}</h3>
-        <p className="text-xs text-gray-400 mt-1">{manga.genre[0]}</p>
-        <div className="mt-2 flex items-center justify-between">
-          <span className={`text-[10px] px-2 py-0.5 rounded ${manga.status === 'Ongoing' ? 'bg-green-900/30 text-green-400' : 'bg-gray-800 text-gray-400'}`}>
-            {manga.status}
-          </span>
-          <span className="text-[10px] text-gray-500">
-            {manga.chapters.length} Бүлэг
-          </span>
+        <h3 className="text-sm font-extrabold text-white truncate group-hover:text-indigo-400 transition-colors">{manga.title}</h3>
+        <div className="flex items-center gap-2 mt-2">
+            <span className={`text-[9px] px-2 py-0.5 rounded-md font-black uppercase tracking-tighter ${manga.status === 'Ongoing' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'}`}>
+                {manga.status}
+            </span>
+            <span className="text-[9px] text-zinc-500 font-bold">
+                {manga.chapters.length} CHAPTERS
+            </span>
         </div>
       </div>
     </div>
