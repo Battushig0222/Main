@@ -25,6 +25,12 @@ export interface User {
   role: 'admin' | 'user';
 }
 
+export interface AdminAccount {
+  username: string;
+  password: string;
+  isSuperAdmin?: boolean;
+}
+
 export interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
