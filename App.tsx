@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
 import { Manga, User, AuthState, Chapter } from './types';
-import { INITIAL_MANGA, ADMIN_CREDENTIALS } from './constants';
+import { INITIAL_MANGA, ADMIN_CREDENTIALS, SUPABASE_CONFIG } from './constants';
 import { Navbar } from './components/Navbar';
 import { MangaCard } from './components/MangaCard';
 
@@ -17,15 +17,20 @@ const fileToBase64 = (file: File): Promise<string> => {
   });
 };
 
-// --- Supabase Client ---
-// These should ideally be environment variables, but for simplicity we'll allow admin to set them in UI
-let supabase: any = null;
-const initSupabase = (url: string, key: string) => {
-  if (url && key) {
-    supabase = createClient(url, key);
-    return true;
+// --- Supabase Client Utility ---
+let supabaseInstance: any = null;
+
+const getSupabase = () => {
+  if (supabaseInstance) return supabaseInstance;
+  const url = SUPABASE_CONFIG.url;
+  const key = SUPABASE_CONFIG.key;
+  try {
+    supabaseInstance = createClient(url, key);
+    return supabaseInstance;
+  } catch (e) {
+    console.error("Supabase creation failed", e);
   }
-  return false;
+  return null;
 };
 
 // --- Image Editor ---
@@ -308,21 +313,32 @@ const AdminPanel: React.FC<{
   onAddManga: (m: Manga) => void,
   onSyncToCloud: () => void,
   onFetchFromCloud: () => void,
-  cloudStatus: string
-}> = ({ mangaList, setMangaList, onAddManga, onSyncToCloud, onFetchFromCloud, cloudStatus }) => {
+  cloudStatus: string,
+  setCloudStatus: (s: string) => void
+}> = ({ mangaList, setMangaList, onAddManga, onSyncToCloud, onFetchFromCloud, cloudStatus, setCloudStatus }) => {
   const [title, setTitle] = useState('');
   const [author, setAuthor] = useState('');
   const [coverUrl, setCoverUrl] = useState('');
   const [description, setDescription] = useState('');
-  const [sbUrl, setSbUrl] = useState(localStorage.getItem('sb_url') || '');
-  const [sbKey, setSbKey] = useState(localStorage.getItem('sb_key') || '');
   const navigate = useNavigate();
 
-  const handleSaveSb = () => {
-    localStorage.setItem('sb_url', sbUrl);
-    localStorage.setItem('sb_key', sbKey);
-    alert("Supabase тохиргоо хадгалагдлаа. Вэбээ дахин ачаална уу.");
-    window.location.reload();
+  const handleTestConnection = async () => {
+    const sb = getSupabase();
+    if (!sb) { alert("Supabase холболт олдсонгүй!"); return; }
+    setCloudStatus('Шалгаж байна...');
+    try {
+      const { data, error } = await sb.from('manga').select('id').limit(1);
+      if (error) {
+         if (error.message.includes("Could not find the 'data' column")) {
+            throw new Error("Supabase дээр 'data' багана олдсонгүй. SQL Editor-оос: 'ALTER TABLE manga ADD COLUMN data jsonb;' гэж бичиж ажиллуулна уу.");
+         }
+         throw error;
+      }
+      setCloudStatus('Холболт амжилттай!');
+    } catch (e: any) {
+      setCloudStatus('Алдаа: ' + e.message);
+      alert("Алдаа: " + e.message);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -333,45 +349,64 @@ const AdminPanel: React.FC<{
 
   return (
     <div className="max-w-5xl mx-auto p-4 md:p-10 space-y-12">
-      <div className="bg-zinc-900 p-8 rounded-[2rem] border border-white/5 space-y-6 shadow-2xl">
-        <div className="flex items-center justify-between">
-          <div><h1 className="text-3xl font-black text-white">Supabase Cloud Тохиргоо</h1><p className="text-gray-500 text-sm">Мэдээллээ бүх PC дээр синхрончлох.</p></div>
-          <div className={`px-4 py-1 rounded-full text-[10px] font-black uppercase ${cloudStatus.includes('Амжилттай') ? 'bg-green-600/20 text-green-400' : 'bg-yellow-600/20 text-yellow-400'}`}>
-            Статус: {cloudStatus}
+      <div className="bg-zinc-900 p-8 rounded-[2rem] border border-white/5 space-y-6 shadow-2xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/5 blur-[100px] -z-10"></div>
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div><h1 className="text-3xl font-black text-white">Cloud Sync</h1><p className="text-gray-500 text-sm">Таны өгөгдөл найдвартай хадгалагдана.</p></div>
+          <div className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest ${cloudStatus.includes('Амжилттай') ? 'bg-green-600/20 text-green-400 border border-green-600/20' : 'bg-yellow-600/20 text-yellow-400 border border-yellow-600/20'}`}>
+            Status: {cloudStatus}
           </div>
         </div>
-        <div className="grid md:grid-cols-2 gap-4">
-          <input value={sbUrl} onChange={e => setSbUrl(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white text-xs" placeholder="Supabase Project URL" />
-          <input type="password" value={sbKey} onChange={e => setSbKey(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white text-xs" placeholder="Supabase Anon Key" />
+        <div className="flex flex-wrap gap-4 pt-4 border-t border-white/5">
+          <button onClick={handleTestConnection} className="bg-white/5 hover:bg-white/10 px-8 py-3 rounded-xl font-bold border border-white/10 transition-all">Холболт шалгах</button>
+          <button onClick={onSyncToCloud} className="bg-blue-600 hover:bg-blue-700 px-8 py-3 rounded-xl font-bold shadow-lg shadow-blue-600/20 transition-all">Cloud руу хуулах (Sync Up)</button>
+          <button onClick={onFetchFromCloud} className="bg-zinc-800 hover:bg-zinc-700 px-8 py-3 rounded-xl font-bold transition-all">Cloud-аас татах (Sync Down)</button>
         </div>
-        <div className="flex gap-4">
-          <button onClick={handleSaveSb} className="bg-white/5 hover:bg-white/10 px-8 py-3 rounded-xl font-bold border border-white/10">Тохиргоо хадгалах</button>
-          <button onClick={onSyncToCloud} className="bg-blue-600 hover:bg-blue-700 px-8 py-3 rounded-xl font-bold shadow-lg shadow-blue-600/20">Cloud руу хуулах (Sync Up)</button>
-          <button onClick={onFetchFromCloud} className="bg-green-600 hover:bg-green-700 px-8 py-3 rounded-xl font-bold shadow-lg shadow-green-600/20">Cloud-аас татах (Sync Down)</button>
+        
+        <div className="p-6 bg-blue-900/10 border border-blue-500/20 rounded-2xl space-y-4">
+          <h3 className="text-blue-400 font-black text-sm uppercase">🛠️ Supabase SQL Editor-т дараахыг ажиллуулна уу:</h3>
+          <div className="relative group">
+            <pre className="bg-black/60 p-4 rounded-xl text-xs text-blue-200 font-mono overflow-x-auto border border-white/5">
+{`-- 1. Хүснэгт үүсгэх
+CREATE TABLE IF NOT EXISTS manga (
+    id text PRIMARY KEY,
+    data jsonb NOT NULL
+);
+
+-- 2. Индекс байгаа бол устгах (Том өгөгдөл хадгалахад хэрэгтэй)
+DROP INDEX IF EXISTS idx_manga_data;
+
+-- 3. Хэрэв data багана байхгүй бол нэмэх
+-- ALTER TABLE manga ADD COLUMN IF NOT EXISTS data jsonb;
+
+-- 4. Supabase-ийн кэшийг сэргээх
+NOTIFY pgrst, 'reload schema';`}
+            </pre>
+            <button 
+              onClick={() => {
+                navigator.clipboard.writeText(`CREATE TABLE IF NOT EXISTS manga (\n    id text PRIMARY KEY,\n    data jsonb NOT NULL\n);\nDROP INDEX IF EXISTS idx_manga_data;\nNOTIFY pgrst, 'reload schema';`);
+                alert("Копидлоо! Supabase SQL Editor-тээ Paste хийгээд Run дараарай.");
+              }}
+              className="absolute top-2 right-2 bg-blue-600 text-white text-[10px] font-black px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+            >
+              COPY SQL
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-10">
         <form onSubmit={handleSubmit} className="space-y-8 bg-zinc-900 p-10 rounded-[2.5rem] border border-white/5 shadow-2xl">
-          <h2 className="text-2xl font-black">Шинэ Манга</h2>
+          <h2 className="text-2xl font-black">Шинэ Манга Нэмэх</h2>
           <div className="space-y-4">
             <input value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white" placeholder="Гарчиг" required />
             <input value={author} onChange={e => setAuthor(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white" placeholder="Зохиолч" required />
             <textarea value={description} onChange={e => setDescription(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white h-40" placeholder="Тайлбар" required />
             <input type="file" accept="image/*" onChange={async e => { if (e.target.files && e.target.files[0]) setCoverUrl(await fileToBase64(e.target.files[0])); }} className="hidden" id="cover-pick" />
-            <label htmlFor="cover-pick" className="block border-2 border-dashed border-white/10 p-8 rounded-[2rem] text-center cursor-pointer hover:bg-white/5">{coverUrl ? 'Зураг сонгогдлоо' : '+ Нүүр зураг'}</label>
-            <button className="w-full bg-blue-600 py-5 rounded-2xl font-black uppercase tracking-widest">Бүртгэх</button>
+            <label htmlFor="cover-pick" className="block border-2 border-dashed border-white/10 p-8 rounded-[2rem] text-center cursor-pointer hover:bg-white/5">{coverUrl ? 'Зураг сонгогдлоо' : '+ Нүүр зураг сонгох'}</label>
+            <button className="w-full bg-blue-600 py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-xl shadow-blue-600/20">Бүртгэх</button>
           </div>
         </form>
-        <div className="bg-blue-600/5 p-10 rounded-[2.5rem] border border-blue-600/10 space-y-6">
-          <h3 className="text-xl font-black text-blue-400">💡 Supabase дээр хийх алхам:</h3>
-          <p className="text-gray-400 text-sm leading-relaxed">
-            1. Supabase-д <code>manga</code> нэртэй хүснэгт үүсгэ.<br/>
-            2. Хүснэгтэд <code>id</code> (text) болон <code>data</code> (jsonb) багана нэм.<br/>
-            3. RLS тохиргоог "Disable" эсвэл бүх хүн уншиж/бичиж болохоор тохируул.<br/>
-            4. Дээрх URL болон Anon Key-г хуулж тавиад "Sync Up" дарна.
-          </p>
-        </div>
       </div>
     </div>
   );
@@ -387,48 +422,55 @@ const App: React.FC = () => {
   const [authForm, setAuthForm] = useState({ username: '', password: '' });
   const [cloudStatus, setCloudStatus] = useState('Холбогдоогүй');
 
-  // Initialize data from LocalStorage first
+  // Initialize data
   useEffect(() => {
     const saved = localStorage.getItem('manga_list');
     if (saved) setMangaList(JSON.parse(saved));
     else setMangaList(INITIAL_MANGA);
 
-    const url = localStorage.getItem('sb_url');
-    const key = localStorage.getItem('sb_key');
-    if (url && key) {
-      if (initSupabase(url, key)) {
-        handleFetchFromCloud();
-      }
-    }
+    // Initial check
+    setTimeout(() => handleFetchFromCloud(), 1500);
   }, []);
 
-  // Sync to LocalStorage
+  // Local Storage update
   useEffect(() => {
     if (mangaList.length > 0) {
       localStorage.setItem('manga_list', JSON.stringify(mangaList));
     }
   }, [mangaList]);
 
+  useEffect(() => {
+    localStorage.setItem('auth_state', JSON.stringify(authState));
+  }, [authState]);
+
   const handleSyncToCloud = async () => {
-    if (!supabase) { alert("Supabase тохиргоо хийгдээгүй байна!"); return; }
+    const sb = getSupabase();
+    if (!sb) { alert("Supabase холболт олдсонгүй!"); return; }
     setCloudStatus('Хуулж байна...');
     try {
-      // Upsert each manga into Supabase
-      const updates = mangaList.map(m => ({ id: m.id, data: m }));
-      const { error } = await supabase.from('manga').upsert(updates);
-      if (error) throw error;
+      for (const manga of mangaList) {
+        const { error } = await sb.from('manga').upsert({ id: manga.id, data: manga });
+        if (error) throw error;
+      }
       setCloudStatus('Амжилттай хуулагдлаа');
-      alert("Бүх мэдээлэл Cloud руу хадгалагдлаа!");
+      alert("Бүх манга Cloud руу амжилттай хадгалагдлаа!");
     } catch (e: any) {
-      setCloudStatus('Алдаа: ' + e.message);
+      const msg = e.message || "Unknown error";
+      setCloudStatus('Алдаа: ' + msg);
+      if (msg.includes("Could not find the 'data' column")) {
+         alert("Алдаа: Supabase дээр 'data' багана олдсонгүй. Админ хэсэгт байгаа SQL кодыг Supabase SQL Editor-тээ ажиллуулна уу!");
+      } else {
+         alert("Алдаа гарлаа: " + msg);
+      }
     }
   };
 
   const handleFetchFromCloud = async () => {
-    if (!supabase) return;
+    const sb = getSupabase();
+    if (!sb) return;
     setCloudStatus('Татаж байна...');
     try {
-      const { data, error } = await supabase.from('manga').select('*');
+      const { data, error } = await sb.from('manga').select('*');
       if (error) throw error;
       if (data && data.length > 0) {
         const fetchedList = data.map((item: any) => item.data);
@@ -464,20 +506,22 @@ const App: React.FC = () => {
                 onSyncToCloud={handleSyncToCloud}
                 onFetchFromCloud={handleFetchFromCloud}
                 cloudStatus={cloudStatus}
+                setCloudStatus={setCloudStatus}
               />
             ) : <Home mangaList={mangaList} />} />
           </Routes>
         </main>
         {showAuthModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl">
-            <div className="bg-zinc-900 w-full max-w-md p-10 rounded-[2.5rem] border border-white/5 shadow-2xl">
+            <div className="bg-zinc-900 w-full max-w-md p-10 rounded-[2.5rem] border border-white/5 shadow-2xl scale-in">
               <h2 className="text-3xl font-black mb-8">Нэвтрэх</h2>
               <form onSubmit={handleLogin} className="space-y-6">
-                <input value={authForm.username} onChange={e => setAuthForm({ ...authForm, username: e.target.value })} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-bold" placeholder="Хэрэглэгчийн нэр" required />
-                <input type="password" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-bold" placeholder="Нууц үг" required />
+                <input value={authForm.username} onChange={e => setAuthForm({ ...authForm, username: e.target.value })} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-bold outline-none focus:border-blue-600 transition-all" placeholder="Хэрэглэгчийн нэр" required />
+                <input type="password" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-bold outline-none focus:border-blue-600 transition-all" placeholder="Нууц үг" required />
                 <button className="w-full bg-blue-600 py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-blue-600/20 active:scale-95 transition-all">Үргэлжлүүлэх</button>
                 <div className="pt-4 text-[10px] text-center text-gray-600 font-black border-t border-white/5 uppercase mt-4">Admin: Battushig / RGT_YTHAPPY</div>
               </form>
+              <button onClick={() => setShowAuthModal(false)} className="mt-4 w-full text-xs text-gray-500 font-bold hover:text-white transition-all">Болих</button>
             </div>
           </div>
         )}
