@@ -15,9 +15,9 @@ const processImageFile = (file: File): Promise<string> => {
     reader.onload = (event) => {
       const img = new Image();
       img.onload = () => {
-        const MAX_DIM = 8192; // Safe limit for most browsers
-        let width = img.width;
-        let height = img.height;
+        const MAX_DIM = 8192; 
+        let width = img.width || 800;
+        let height = img.height || 1200;
         
         if (width > MAX_DIM || height > MAX_DIM) {
           const ratio = Math.min(MAX_DIM / width, MAX_DIM / height);
@@ -31,14 +31,15 @@ const processImageFile = (file: File): Promise<string> => {
         const ctx = canvas.getContext('2d');
         if (!ctx) return reject('Canvas context failed');
         
+        ctx.fillStyle = "white"; // Prevent black background on transparent images
+        ctx.fillRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
-        // Use JPEG and 0.7 quality to significantly reduce base64 string size
         resolve(canvas.toDataURL('image/jpeg', 0.7));
       };
-      img.onerror = reject;
+      img.onerror = () => reject('Image load failed');
       img.src = event.target?.result as string;
     };
-    reader.onerror = reject;
+    reader.onerror = () => reject('File read failed');
   });
 };
 
@@ -92,7 +93,8 @@ const ImageEditor: React.FC<{
       canvas.width = isVertical ? drawHeight : drawWidth;
       canvas.height = isVertical ? drawWidth : drawHeight;
       
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "white";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.save();
       ctx.translate(canvas.width / 2, canvas.height / 2);
       ctx.rotate((rotation * Math.PI) / 180);
@@ -195,7 +197,7 @@ const MangaEditModal: React.FC<{
           onSave={(newSrc) => { setCoverUrl(newSrc); setIsEditingCover(false); }} 
         />
       )}
-      <div className="bg-[#0f0f0f] w-full max-w-2xl p-8 md:p-12 rounded-[2.5rem] border border-white/10 shadow-2xl space-y-8 my-8">
+      <div className="bg-[#0f0f0f] w-full max-w-2xl p-8 md:p-12 rounded-[2.5rem] border border-white/10 shadow-2xl space-y-8 my-8 scale-in">
         <div className="flex justify-between items-center">
           <h2 className="text-3xl font-black text-white italic uppercase">Edit <span className="text-indigo-500">Manga</span></h2>
           <button onClick={onClose} className="text-zinc-500 bg-white/5 w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 hover:text-white transition-all">&times;</button>
@@ -264,7 +266,7 @@ const ChapterEditorModal: React.FC<{ chapter: Chapter; onClose: () => void; onSa
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl">
       {editingIdx !== null && <ImageEditor src={pages[editingIdx]} onClose={() => setEditingIdx(null)} onSave={src => { const p = [...pages]; p[editingIdx] = src; setPages(p); setEditingIdx(null); }} />}
-      <div className="bg-[#0f0f0f] w-full max-w-6xl p-8 rounded-[3rem] border border-white/10 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-[#0f0f0f] w-full max-w-6xl p-8 rounded-[3rem] border border-white/10 shadow-2xl max-h-[90vh] overflow-y-auto scale-in">
         <div className="flex justify-between items-center mb-8">
           <h2 className="text-3xl font-black text-white italic uppercase">Edit <span className="text-indigo-500">Chapter</span></h2>
           <button onClick={onClose} className="text-zinc-500 bg-white/5 w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/10 transition-all">&times;</button>
@@ -511,6 +513,7 @@ const AdminPanel: React.FC<{
       chapters: [] 
     };
     onAddManga(manga); 
+    setNewManga({ title: '', author: '', description: '', coverUrl: '' });
     navigate(`/manga/${manga.id}`);
   };
 
@@ -539,7 +542,7 @@ const AdminPanel: React.FC<{
 
       {activeTab === 'manga' ? (
         <div className="grid lg:grid-cols-2 gap-16">
-          <form onSubmit={handleMangaSubmit} className="space-y-10 bg-[#0f0f0f] p-10 md:p-14 rounded-[3.5rem] border border-white/5 shadow-2xl">
+          <form onSubmit={handleMangaSubmit} className="space-y-10 bg-[#0f0f0f] p-10 md:p-14 rounded-[3.5rem] border border-white/5 shadow-2xl scale-in">
             <h2 className="text-3xl font-black italic uppercase">Add <span className="text-indigo-500">Manga</span></h2>
             <div className="space-y-6">
               <input value={newManga.title} onChange={e => setNewManga({...newManga, title: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600 transition-all" placeholder="Title" required />
@@ -567,7 +570,7 @@ const AdminPanel: React.FC<{
         </div>
       ) : (
         <div className="grid lg:grid-cols-2 gap-16">
-          <form onSubmit={e => { e.preventDefault(); onAddAdmin(newAdmin); setNewAdmin({username:'', password:''}); }} className="space-y-10 bg-[#0f0f0f] p-10 md:p-14 rounded-[3.5rem] border border-white/5 shadow-2xl">
+          <form onSubmit={e => { e.preventDefault(); onAddAdmin(newAdmin); setNewAdmin({username:'', password:''}); }} className="space-y-10 bg-[#0f0f0f] p-10 md:p-14 rounded-[3.5rem] border border-white/5 shadow-2xl scale-in">
             <h2 className="text-3xl font-black italic uppercase">New <span className="text-indigo-500">Staff</span></h2>
             <div className="space-y-6">
               <input value={newAdmin.username} onChange={e => setNewAdmin({...newAdmin, username: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600 transition-all" placeholder="Username" required />
@@ -584,7 +587,7 @@ const AdminPanel: React.FC<{
                     <div className="w-12 h-12 rounded-2xl bg-indigo-600/20 flex items-center justify-center font-black text-indigo-500 shadow-inner">A</div>
                     <div>
                       <div className="font-black text-white text-lg">{a.username}</div>
-                      <div className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest">{a.isSuperAdmin ? 'Full Access' : 'Content Manager'}</div>
+                      <div className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest">{a.isSuperAdmin ? 'Full Access' : 'Staff Member'}</div>
                     </div>
                   </div>
                   {!a.isSuperAdmin && currentUser?.username === 'Battushig' && (
@@ -612,6 +615,7 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : { user: null, isAuthenticated: false };
   });
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authForm, setAuthForm] = useState({ username: '', password: '' });
   const [cloudStatus, setCloudStatus] = useState('Салсан');
 
@@ -623,12 +627,10 @@ const App: React.FC = () => {
     } else {
       setMangaList(INITIAL_MANGA);
     }
-    
-    // Immediate global fetch for admins and manga
     handleFetchFromCloud();
   }, []);
 
-  // Sync state to localstorage for fallback
+  // Sync to localstorage
   useEffect(() => {
     if (mangaList.length > 0) {
       try { localStorage.setItem('manga_list', JSON.stringify(mangaList)); } catch (e) {}
@@ -643,7 +645,7 @@ const App: React.FC = () => {
     localStorage.setItem('auth_state', JSON.stringify(authState));
   }, [authState]);
 
-  const handleSyncToCloud = async (overrideAdmins?: AdminAccount[]) => {
+  const handleSyncToCloud = async (overrideAdmins?: AdminAccount[], overrideManga?: Manga[]) => {
     const sb = getSupabase();
     if (!sb) {
       setCloudStatus('Supabase алдаа');
@@ -652,21 +654,19 @@ const App: React.FC = () => {
     setCloudStatus('Syncing...');
     try {
       const targetAdmins = overrideAdmins || admins;
-      const mangaData = mangaList.map(m => ({ id: m.id, data: m }));
+      const targetManga = overrideManga || mangaList;
+      const mangaData = targetManga.map(m => ({ id: m.id, data: m }));
       
-      // Upsert Manga
       if (mangaData.length > 0) {
         await sb.from('manga').upsert(mangaData);
       }
-      
-      // Upsert Global Config (Admins)
       await sb.from('config').upsert({ id: 'admins_list', data: targetAdmins });
       
-      setCloudStatus('Амжилттай хуулагдлаа');
+      setCloudStatus('Амжилттай хадгаллаа');
       setTimeout(() => setCloudStatus('Амжилттай'), 3000);
     } catch (e: any) { 
       console.error(e);
-      setCloudStatus('Error: ' + e.message); 
+      setCloudStatus('Error'); 
     }
   };
 
@@ -696,7 +696,6 @@ const App: React.FC = () => {
   const handleAddAdmin = async (newAdmin: AdminAccount) => {
     const updatedAdmins = [...admins, newAdmin];
     setAdmins(updatedAdmins);
-    // Trigger auto-sync so other admins can log in
     await handleSyncToCloud(updatedAdmins);
   };
 
@@ -706,26 +705,47 @@ const App: React.FC = () => {
     await handleSyncToCloud(updatedAdmins);
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Check against global list
-    const foundAdmin = admins.find(a => a.username === authForm.username && a.password === authForm.password);
-    if (foundAdmin) {
-      setAuthState({ user: { username: foundAdmin.username, role: 'admin' }, isAuthenticated: true });
+    if (authMode === 'login') {
+      const foundAdmin = admins.find(a => a.username === authForm.username && a.password === authForm.password);
+      if (foundAdmin) {
+        setAuthState({ user: { username: foundAdmin.username, role: 'admin' }, isAuthenticated: true });
+        setShowAuthModal(false);
+      } else {
+        alert("Нэвтрэх нэр эсвэл нууц үг буруу байна.");
+      }
     } else {
-      // Default simple user role for non-admin credentials
-      setAuthState({ user: { username: authForm.username, role: 'user' }, isAuthenticated: true });
+      if (admins.some(a => a.username === authForm.username)) {
+        alert("Энэ нэр ашиглагдсан байна.");
+        return;
+      }
+      const newUser: AdminAccount = { username: authForm.username, password: authForm.password, isSuperAdmin: false };
+      const updatedAdmins = [...admins, newUser];
+      setAdmins(updatedAdmins);
+      await handleSyncToCloud(updatedAdmins);
+      setAuthState({ user: { username: authForm.username, role: 'admin' }, isAuthenticated: true });
+      setShowAuthModal(false);
     }
-    setShowAuthModal(false); 
     setAuthForm({ username: '', password: '' });
   };
 
-  const handleUpdateManga = (updated: Manga) => {
-    setMangaList(prev => prev.map(m => m.id === updated.id ? updated : m));
+  const handleUpdateManga = async (updated: Manga) => {
+    const newList = mangaList.map(m => m.id === updated.id ? updated : m);
+    setMangaList(newList);
+    await handleSyncToCloud(admins, newList);
   };
 
-  const handleDeleteManga = (id: string) => {
-    setMangaList(prev => prev.filter(m => m.id !== id));
+  const handleAddManga = async (m: Manga) => {
+    const newList = [m, ...mangaList];
+    setMangaList(newList);
+    await handleSyncToCloud(admins, newList);
+  };
+
+  const handleDeleteManga = async (id: string) => {
+    const newList = mangaList.filter(m => m.id !== id);
+    setMangaList(newList);
+    await handleSyncToCloud(admins, newList);
   };
 
   return (
@@ -737,14 +757,17 @@ const App: React.FC = () => {
             <Route path="/" element={<Home mangaList={mangaList} />} />
             <Route path="/manga/:id" element={<MangaDetail mangaList={mangaList} user={authState.user} onUpdateManga={handleUpdateManga} onDeleteManga={handleDeleteManga} />} />
             <Route path="/reader/:mangaId/:chapterId" element={<Reader mangaList={mangaList} />} />
-            <Route path="/admin" element={authState.user?.role === 'admin' ? <AdminPanel mangaList={mangaList} admins={admins} onAddManga={m => setMangaList([m, ...mangaList])} onSyncToCloud={() => handleSyncToCloud()} onFetchFromCloud={handleFetchFromCloud} onDeleteManga={handleDeleteManga} onAddAdmin={handleAddAdmin} onDeleteAdmin={handleDeleteAdmin} cloudStatus={cloudStatus} currentUser={authState.user} /> : <Home mangaList={mangaList} />} />
+            <Route path="/admin" element={authState.user?.role === 'admin' ? <AdminPanel mangaList={mangaList} admins={admins} onAddManga={handleAddManga} onSyncToCloud={() => handleSyncToCloud()} onFetchFromCloud={handleFetchFromCloud} onDeleteManga={handleDeleteManga} onAddAdmin={handleAddAdmin} onDeleteAdmin={handleDeleteAdmin} cloudStatus={cloudStatus} currentUser={authState.user} /> : <Home mangaList={mangaList} />} />
           </Routes>
         </main>
         {showAuthModal && (
           <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/95 backdrop-blur-3xl">
-            <div className="bg-[#0f0f0f] w-full max-w-md p-12 rounded-[3.5rem] border border-white/5 shadow-2xl scale-in">
-              <h2 className="text-4xl font-black mb-10 text-white italic tracking-tighter uppercase">Sign <span className="text-indigo-500">In</span></h2>
-              <form onSubmit={handleLogin} className="space-y-8">
+            <div className="bg-[#0f0f0f] w-full max-w-md p-10 md:p-12 rounded-[3.5rem] border border-white/5 shadow-2xl scale-in">
+              <div className="flex gap-8 mb-10 border-b border-white/5 pb-2">
+                <button onClick={() => setAuthMode('login')} className={`text-xl font-black uppercase tracking-tighter italic ${authMode === 'login' ? 'text-indigo-500' : 'text-zinc-600'}`}>Login</button>
+                <button onClick={() => setAuthMode('register')} className={`text-xl font-black uppercase tracking-tighter italic ${authMode === 'register' ? 'text-indigo-500' : 'text-zinc-600'}`}>Register</button>
+              </div>
+              <form onSubmit={handleAuthSubmit} className="space-y-8">
                 <div className="space-y-1">
                   <label className="text-[10px] text-zinc-600 font-black uppercase tracking-widest ml-1">Username</label>
                   <input value={authForm.username} onChange={e => setAuthForm({ ...authForm, username: e.target.value })} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600 transition-all" placeholder="Enter username" required />
@@ -753,7 +776,9 @@ const App: React.FC = () => {
                   <label className="text-[10px] text-zinc-600 font-black uppercase tracking-widest ml-1">Password</label>
                   <input type="password" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600 transition-all" placeholder="Enter password" required />
                 </div>
-                <button className="w-full bg-indigo-600 py-5 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all">Authorize</button>
+                <button className="w-full bg-indigo-600 py-5 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all">
+                  {authMode === 'login' ? 'Sign In' : 'Sign Up'}
+                </button>
               </form>
               <button onClick={() => setShowAuthModal(false)} className="mt-8 w-full text-[10px] text-zinc-700 font-black uppercase tracking-[0.3em] hover:text-white transition-all">Cancel</button>
             </div>
