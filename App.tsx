@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
+import { createClient } from '@supabase/supabase-js';
 import { Manga, User, AuthState, Chapter } from './types';
 import { INITIAL_MANGA, ADMIN_CREDENTIALS } from './constants';
 import { Navbar } from './components/Navbar';
@@ -14,6 +15,17 @@ const fileToBase64 = (file: File): Promise<string> => {
     reader.onload = () => resolve(reader.result as string);
     reader.onerror = error => reject(error);
   });
+};
+
+// --- Supabase Client ---
+// These should ideally be environment variables, but for simplicity we'll allow admin to set them in UI
+let supabase: any = null;
+const initSupabase = (url: string, key: string) => {
+  if (url && key) {
+    supabase = createClient(url, key);
+    return true;
+  }
+  return false;
 };
 
 // --- Image Editor ---
@@ -110,16 +122,16 @@ const ImageEditor: React.FC<{
       <div className="w-full max-w-6xl mx-auto flex flex-col h-full gap-4">
         <div className="flex flex-wrap items-center justify-between gap-4 bg-zinc-900 p-4 rounded-2xl border border-white/10">
           <div className="flex items-center gap-3">
-            <button onClick={() => setIsDrawingMode(!isDrawingMode)} className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm ${isDrawingMode ? 'bg-blue-600' : 'bg-white/5 text-gray-400'}`}>Edit Mode</button>
+            <button onClick={() => setIsDrawingMode(!isDrawingMode)} className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm ${isDrawingMode ? 'bg-blue-600' : 'bg-white/5 text-gray-400'}`}>Зурах Mode</button>
             {isDrawingMode && <div className="flex items-center gap-4 pl-4 border-l border-white/10">
               <input type="color" value={brushColor} onChange={e => setBrushColor(e.target.value)} className="w-8 h-8 rounded bg-transparent border-none cursor-pointer" />
-              <button onClick={handleUndo} className="p-2 hover:bg-white/10 rounded">Undo</button>
+              <button onClick={handleUndo} className="p-2 hover:bg-white/10 rounded">Буцах</button>
             </div>}
-            <button onClick={() => setRotation(r => r + 90)} className="p-2 bg-white/5 rounded-xl">Rotate</button>
+            <button onClick={() => setRotation(r => r + 90)} className="p-2 bg-white/5 rounded-xl">Эргүүлэх</button>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={onClose} className="px-6 py-2 rounded-xl bg-white/5">Cancel</button>
-            <button onClick={() => canvasRef.current && onSave(canvasRef.current.toDataURL('image/jpeg', 0.7))} className="px-6 py-2 rounded-xl bg-blue-600">Save</button>
+            <button onClick={onClose} className="px-6 py-2 rounded-xl bg-white/5">Болих</button>
+            <button onClick={() => canvasRef.current && onSave(canvasRef.current.toDataURL('image/jpeg', 0.7))} className="px-6 py-2 rounded-xl bg-blue-600">Хадгалах</button>
           </div>
         </div>
         <div className="flex-1 overflow-auto bg-zinc-950 rounded-3xl border border-white/5 flex items-center justify-center p-8">
@@ -139,7 +151,7 @@ const ChapterEditorModal: React.FC<{ chapter: Chapter; onClose: () => void; onSa
 
   const handleAddPages = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
-    const base64s = await Promise.all(Array.from(e.target.files).map(f => fileToBase64(f)));
+    const base64s = await Promise.all(Array.from(e.target.files).map((f: File) => fileToBase64(f)));
     setPages(prev => [...prev, ...base64s]);
   };
 
@@ -178,8 +190,8 @@ const ChapterEditorModal: React.FC<{ chapter: Chapter; onClose: () => void; onSa
                     <button onClick={() => movePage(i, 'up')} className="p-2 bg-white/10 rounded hover:bg-blue-600 transition-colors">↑</button>
                     <button onClick={() => movePage(i, 'down')} className="p-2 bg-white/10 rounded hover:bg-blue-600 transition-colors">↓</button>
                   </div>
-                  <button onClick={() => setEditingIdx(i)} className="bg-blue-600 text-[10px] font-bold px-4 py-1.5 rounded-full">Edit</button>
-                  <button onClick={() => setPages(pages.filter((_, idx) => idx !== i))} className="bg-red-600 text-[10px] font-bold px-4 py-1.5 rounded-full">Del</button>
+                  <button onClick={() => setEditingIdx(i)} className="bg-blue-600 text-[10px] font-bold px-4 py-1.5 rounded-full">Засах</button>
+                  <button onClick={() => setPages(pages.filter((_, idx) => idx !== i))} className="bg-red-600 text-[10px] font-bold px-4 py-1.5 rounded-full">Устгах</button>
                 </div>
               </div>
             ))}
@@ -240,7 +252,9 @@ const MangaDetail: React.FC<{ mangaList: Manga[], user: User | null, onUpdateMan
               <input type="number" step="0.1" value={chNumber} onChange={e => setChNumber(e.target.value)} className="w-full bg-black border border-white/10 rounded-xl p-4 text-white" placeholder="Бүлэг #" required />
               <input value={chTitle} onChange={e => setChTitle(e.target.value)} className="w-full bg-black border border-white/10 rounded-xl p-4 text-white" placeholder="Гарчиг" required />
             </div>
-            <input type="file" multiple accept="image/*" className="hidden" id="bulk-up" onChange={async e => { if (e.target.files) setChPages(await Promise.all(Array.from(e.target.files).map(f => fileToBase64(f)))); }} />
+            <input type="file" multiple accept="image/*" className="hidden" id="bulk-up" onChange={async e => { 
+              if (e.target.files) setChPages(await Promise.all(Array.from(e.target.files).map((f: File) => fileToBase64(f)))); 
+            }} />
             <label htmlFor="bulk-up" className="block border-2 border-dashed border-white/10 p-10 rounded-[2rem] text-center cursor-pointer hover:bg-white/5 transition-all">Зургууд Сонгох ({chPages.length})</label>
             <button className="w-full bg-blue-600 py-5 rounded-2xl font-black uppercase shadow-xl shadow-blue-600/30">Хадгалах</button>
           </form>}
@@ -254,8 +268,8 @@ const MangaDetail: React.FC<{ mangaList: Manga[], user: User | null, onUpdateMan
                     <div><div className="font-black text-xl text-gray-100">{chapter.title}</div><div className="text-[10px] text-gray-500 uppercase font-black mt-1">{chapter.createdAt} • {chapter.pages.length} хуудас</div></div>
                   </div>
                   {isAdmin && <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                    <button onClick={() => setEditingChapter(chapter)} className="p-3 bg-blue-600/10 text-blue-500 rounded-xl hover:bg-blue-600 hover:text-white">Edit</button>
-                    <button onClick={() => window.confirm('Устгах уу?') && onUpdateManga({ ...manga, chapters: manga.chapters.filter(c => c.id !== chapter.id) })} className="p-3 bg-red-600/10 text-red-500 rounded-xl hover:bg-red-600 hover:text-white">Del</button>
+                    <button onClick={() => setEditingChapter(chapter)} className="p-3 bg-blue-600/10 text-blue-500 rounded-xl hover:bg-blue-600 hover:text-white">Засах</button>
+                    <button onClick={() => window.confirm('Устгах уу?') && onUpdateManga({ ...manga, chapters: manga.chapters.filter(c => c.id !== chapter.id) })} className="p-3 bg-red-600/10 text-red-500 rounded-xl hover:bg-red-600 hover:text-white">Устгах</button>
                   </div>}
                 </div>
               ))}
@@ -279,7 +293,7 @@ const Reader: React.FC<{ mangaList: Manga[] }> = ({ mangaList }) => {
         <div className="sticky top-0 bg-black/90 backdrop-blur-xl p-6 flex items-center justify-between z-50 border-b border-white/5">
           <button onClick={() => window.history.back()} className="p-2 bg-white/5 rounded-full">←</button>
           <div className="text-center"><h2 className="font-black text-lg text-white">{manga?.title}</h2><p className="text-[10px] text-blue-500 font-black uppercase">Ch. {chapter.number}</p></div>
-          <span className="text-[10px] bg-white/5 px-4 py-2 rounded-full font-black text-gray-500">{chapter.pages.length} Pages</span>
+          <span className="text-[10px] bg-white/5 px-4 py-2 rounded-full font-black text-gray-500">{chapter.pages.length} хуудас</span>
         </div>
         <div className="flex flex-col gap-1 mt-4">{chapter.pages.map((p, i) => <img key={i} src={p} className="w-full h-auto block" loading="lazy" />)}</div>
       </div>
@@ -287,75 +301,76 @@ const Reader: React.FC<{ mangaList: Manga[] }> = ({ mangaList }) => {
   );
 };
 
-// --- Admin Panel (Backup & Restore included) ---
-const AdminPanel: React.FC<{ mangaList: Manga[], setMangaList: (l: Manga[]) => void, onAddManga: (m: Manga) => void }> = ({ mangaList, setMangaList, onAddManga }) => {
+// --- Admin Panel ---
+const AdminPanel: React.FC<{ 
+  mangaList: Manga[], 
+  setMangaList: (l: Manga[]) => void, 
+  onAddManga: (m: Manga) => void,
+  onSyncToCloud: () => void,
+  onFetchFromCloud: () => void,
+  cloudStatus: string
+}> = ({ mangaList, setMangaList, onAddManga, onSyncToCloud, onFetchFromCloud, cloudStatus }) => {
   const [title, setTitle] = useState('');
   const [author, setAuthor] = useState('');
   const [coverUrl, setCoverUrl] = useState('');
-  const [gallery, setGallery] = useState<string[]>([]);
   const [description, setDescription] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [sbUrl, setSbUrl] = useState(localStorage.getItem('sb_url') || '');
+  const [sbKey, setSbKey] = useState(localStorage.getItem('sb_key') || '');
   const navigate = useNavigate();
 
-  const handleBackup = () => {
-    const dataStr = JSON.stringify(mangaList);
-    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-    const linkElement = document.createElement('a');
-    linkElement.setAttribute('href', dataUri);
-    linkElement.setAttribute('download', 'manga_database_backup.json');
-    linkElement.click();
-  };
-
-  const handleRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const json = JSON.parse(event.target?.result as string);
-        if (Array.isArray(json)) { setMangaList(json); alert("Өгөгдлийг амжилттай сэргээлээ!"); }
-      } catch (err) { alert("Буруу файл байна!"); }
-    };
-    reader.readAsText(file);
+  const handleSaveSb = () => {
+    localStorage.setItem('sb_url', sbUrl);
+    localStorage.setItem('sb_key', sbKey);
+    alert("Supabase тохиргоо хадгалагдлаа. Вэбээ дахин ачаална уу.");
+    window.location.reload();
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const newManga: Manga = { id: `m-${Date.now()}`, title, author, description, coverUrl: coverUrl || 'https://picsum.photos/400/600', gallery, genre: ['Manga'], status: 'Ongoing', rating: 5.0, chapters: [] };
+    const newManga: Manga = { id: `m-${Date.now()}`, title, author, description, coverUrl: coverUrl || 'https://picsum.photos/400/600', gallery: [], genre: ['Manga'], status: 'Ongoing', rating: 5.0, chapters: [] };
     onAddManga(newManga); navigate(`/manga/${newManga.id}`);
   };
 
   return (
     <div className="max-w-5xl mx-auto p-4 md:p-10 space-y-12">
-      <div className="flex flex-col md:flex-row justify-between items-center gap-6 bg-zinc-900 p-8 rounded-[2rem] border border-white/5 shadow-2xl">
-        <div><h1 className="text-3xl font-black text-white">Админ Удирдлага</h1><p className="text-gray-500 text-sm">Мэдээллээ хадгалах эсвэл сэргээх боломжтой.</p></div>
+      <div className="bg-zinc-900 p-8 rounded-[2rem] border border-white/5 space-y-6 shadow-2xl">
+        <div className="flex items-center justify-between">
+          <div><h1 className="text-3xl font-black text-white">Supabase Cloud Тохиргоо</h1><p className="text-gray-500 text-sm">Мэдээллээ бүх PC дээр синхрончлох.</p></div>
+          <div className={`px-4 py-1 rounded-full text-[10px] font-black uppercase ${cloudStatus.includes('Амжилттай') ? 'bg-green-600/20 text-green-400' : 'bg-yellow-600/20 text-yellow-400'}`}>
+            Статус: {cloudStatus}
+          </div>
+        </div>
+        <div className="grid md:grid-cols-2 gap-4">
+          <input value={sbUrl} onChange={e => setSbUrl(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white text-xs" placeholder="Supabase Project URL" />
+          <input type="password" value={sbKey} onChange={e => setSbKey(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white text-xs" placeholder="Supabase Anon Key" />
+        </div>
         <div className="flex gap-4">
-          <button onClick={handleBackup} className="bg-green-600 hover:bg-green-700 text-white font-bold px-6 py-3 rounded-2xl transition-all shadow-xl shadow-green-600/20">Backup (JSON Татах)</button>
-          <input type="file" id="restore-file" className="hidden" accept=".json" onChange={handleRestore} />
-          <label htmlFor="restore-file" className="bg-white/5 hover:bg-white/10 text-white font-bold px-6 py-3 rounded-2xl cursor-pointer border border-white/10 transition-all">Restore (Файл Унших)</label>
+          <button onClick={handleSaveSb} className="bg-white/5 hover:bg-white/10 px-8 py-3 rounded-xl font-bold border border-white/10">Тохиргоо хадгалах</button>
+          <button onClick={onSyncToCloud} className="bg-blue-600 hover:bg-blue-700 px-8 py-3 rounded-xl font-bold shadow-lg shadow-blue-600/20">Cloud руу хуулах (Sync Up)</button>
+          <button onClick={onFetchFromCloud} className="bg-green-600 hover:bg-green-700 px-8 py-3 rounded-xl font-bold shadow-lg shadow-green-600/20">Cloud-аас татах (Sync Down)</button>
         </div>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-10">
         <form onSubmit={handleSubmit} className="space-y-8 bg-zinc-900 p-10 rounded-[2.5rem] border border-white/5 shadow-2xl">
-          <h2 className="text-2xl font-black">Шинэ Манга Нэмэх</h2>
+          <h2 className="text-2xl font-black">Шинэ Манга</h2>
           <div className="space-y-4">
             <input value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white" placeholder="Гарчиг" required />
             <input value={author} onChange={e => setAuthor(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white" placeholder="Зохиолч" required />
             <textarea value={description} onChange={e => setDescription(e.target.value)} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white h-40" placeholder="Тайлбар" required />
-            <input type="file" accept="image/*" onChange={async e => { if (e.target.files) setCoverUrl(await fileToBase64(e.target.files[0])); }} className="hidden" id="cover-pick" />
-            <label htmlFor="cover-pick" className="block border-2 border-dashed border-white/10 p-8 rounded-[2rem] text-center cursor-pointer hover:bg-white/5">{coverUrl ? 'Нүүр зураг сонгогдлоо' : '+ Нүүр зураг'}</label>
-            <button className="w-full bg-blue-600 py-5 rounded-2xl font-black tracking-widest uppercase shadow-xl shadow-blue-600/30">Бүртгэх</button>
+            <input type="file" accept="image/*" onChange={async e => { if (e.target.files && e.target.files[0]) setCoverUrl(await fileToBase64(e.target.files[0])); }} className="hidden" id="cover-pick" />
+            <label htmlFor="cover-pick" className="block border-2 border-dashed border-white/10 p-8 rounded-[2rem] text-center cursor-pointer hover:bg-white/5">{coverUrl ? 'Зураг сонгогдлоо' : '+ Нүүр зураг'}</label>
+            <button className="w-full bg-blue-600 py-5 rounded-2xl font-black uppercase tracking-widest">Бүртгэх</button>
           </div>
         </form>
         <div className="bg-blue-600/5 p-10 rounded-[2.5rem] border border-blue-600/10 space-y-6">
-          <h3 className="text-xl font-black text-blue-400">💡 Вэбсайтыг нийтэд байршуулах (Hosting):</h3>
-          <ul className="space-y-4 text-gray-400 text-sm">
-            <li>1. Энэ кодоо <b>GitHub</b> дээр хадгал.</li>
-            <li>2. <b>Vercel.com</b> эсвэл <b>Netlify.com</b> руу орж GitHub-аа холбо.</li>
-            <li>3. Мангануудаа оруулсны дараа <b>"Backup"</b> товчийг дарж файлаа хадгалж бай.</li>
-            <li>4. Өөр төхөөрөмжөөс орохдоо <b>"Restore"</b> хийж мэдээллээ сэргээнэ.</li>
-          </ul>
+          <h3 className="text-xl font-black text-blue-400">💡 Supabase дээр хийх алхам:</h3>
+          <p className="text-gray-400 text-sm leading-relaxed">
+            1. Supabase-д <code>manga</code> нэртэй хүснэгт үүсгэ.<br/>
+            2. Хүснэгтэд <code>id</code> (text) болон <code>data</code> (jsonb) багана нэм.<br/>
+            3. RLS тохиргоог "Disable" эсвэл бүх хүн уншиж/бичиж болохоор тохируул.<br/>
+            4. Дээрх URL болон Anon Key-г хуулж тавиад "Sync Up" дарна.
+          </p>
         </div>
       </div>
     </div>
@@ -363,19 +378,67 @@ const AdminPanel: React.FC<{ mangaList: Manga[], setMangaList: (l: Manga[]) => v
 };
 
 const App: React.FC = () => {
-  const [mangaList, setMangaList] = useState<Manga[]>(() => {
-    const saved = localStorage.getItem('manga_list');
-    return saved ? JSON.parse(saved) : INITIAL_MANGA;
-  });
+  const [mangaList, setMangaList] = useState<Manga[]>([]);
   const [authState, setAuthState] = useState<AuthState>(() => {
     const saved = localStorage.getItem('auth_state');
     return saved ? JSON.parse(saved) : { user: null, isAuthenticated: false };
   });
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authForm, setAuthForm] = useState({ username: '', password: '' });
+  const [cloudStatus, setCloudStatus] = useState('Холбогдоогүй');
 
-  useEffect(() => { try { localStorage.setItem('manga_list', JSON.stringify(mangaList)); } catch (e) { alert("Санах ой дүүрсэн байна!"); } }, [mangaList]);
-  useEffect(() => { localStorage.setItem('auth_state', JSON.stringify(authState)); }, [authState]);
+  // Initialize data from LocalStorage first
+  useEffect(() => {
+    const saved = localStorage.getItem('manga_list');
+    if (saved) setMangaList(JSON.parse(saved));
+    else setMangaList(INITIAL_MANGA);
+
+    const url = localStorage.getItem('sb_url');
+    const key = localStorage.getItem('sb_key');
+    if (url && key) {
+      if (initSupabase(url, key)) {
+        handleFetchFromCloud();
+      }
+    }
+  }, []);
+
+  // Sync to LocalStorage
+  useEffect(() => {
+    if (mangaList.length > 0) {
+      localStorage.setItem('manga_list', JSON.stringify(mangaList));
+    }
+  }, [mangaList]);
+
+  const handleSyncToCloud = async () => {
+    if (!supabase) { alert("Supabase тохиргоо хийгдээгүй байна!"); return; }
+    setCloudStatus('Хуулж байна...');
+    try {
+      // Upsert each manga into Supabase
+      const updates = mangaList.map(m => ({ id: m.id, data: m }));
+      const { error } = await supabase.from('manga').upsert(updates);
+      if (error) throw error;
+      setCloudStatus('Амжилттай хуулагдлаа');
+      alert("Бүх мэдээлэл Cloud руу хадгалагдлаа!");
+    } catch (e: any) {
+      setCloudStatus('Алдаа: ' + e.message);
+    }
+  };
+
+  const handleFetchFromCloud = async () => {
+    if (!supabase) return;
+    setCloudStatus('Татаж байна...');
+    try {
+      const { data, error } = await supabase.from('manga').select('*');
+      if (error) throw error;
+      if (data && data.length > 0) {
+        const fetchedList = data.map((item: any) => item.data);
+        setMangaList(fetchedList);
+        setCloudStatus('Амжилттай татлаа');
+      }
+    } catch (e: any) {
+      setCloudStatus('Алдаа: ' + e.message);
+    }
+  };
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -391,9 +454,18 @@ const App: React.FC = () => {
         <main className="flex-1">
           <Routes>
             <Route path="/" element={<Home mangaList={mangaList} />} />
-            <Route path="/manga/:id" element={<MangaDetail mangaList={mangaList} user={authState.user} onUpdateManga={m => setMangaList(mangaList.map(item => item.id === m.id ? m : item))} />} />
+            <Route path="/manga/:id" element={<MangaDetail mangaList={mangaList} user={authState.user} onUpdateManga={m => setMangaList(prev => prev.map(item => item.id === m.id ? m : item))} />} />
             <Route path="/reader/:mangaId/:chapterId" element={<Reader mangaList={mangaList} />} />
-            <Route path="/admin" element={authState.user?.username === 'Battushig' ? <AdminPanel mangaList={mangaList} setMangaList={setMangaList} onAddManga={m => setMangaList([m, ...mangaList])} /> : <Home mangaList={mangaList} />} />
+            <Route path="/admin" element={authState.user?.username === 'Battushig' ? (
+              <AdminPanel 
+                mangaList={mangaList} 
+                setMangaList={setMangaList} 
+                onAddManga={m => setMangaList([m, ...mangaList])}
+                onSyncToCloud={handleSyncToCloud}
+                onFetchFromCloud={handleFetchFromCloud}
+                cloudStatus={cloudStatus}
+              />
+            ) : <Home mangaList={mangaList} />} />
           </Routes>
         </main>
         {showAuthModal && (
@@ -401,10 +473,10 @@ const App: React.FC = () => {
             <div className="bg-zinc-900 w-full max-w-md p-10 rounded-[2.5rem] border border-white/5 shadow-2xl">
               <h2 className="text-3xl font-black mb-8">Нэвтрэх</h2>
               <form onSubmit={handleLogin} className="space-y-6">
-                <input value={authForm.username} onChange={e => setAuthForm({ ...authForm, username: e.target.value })} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white" placeholder="Username" required />
-                <input type="password" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white" placeholder="Password" required />
-                <button className="w-full bg-blue-600 py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl">Үргэлжлүүлэх</button>
-                <div className="pt-4 text-[10px] text-center text-gray-600 font-black border-t border-white/5 uppercase">Admin: Battushig / RGT_YTHAPPY</div>
+                <input value={authForm.username} onChange={e => setAuthForm({ ...authForm, username: e.target.value })} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-bold" placeholder="Хэрэглэгчийн нэр" required />
+                <input type="password" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-bold" placeholder="Нууц үг" required />
+                <button className="w-full bg-blue-600 py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-blue-600/20 active:scale-95 transition-all">Үргэлжлүүлэх</button>
+                <div className="pt-4 text-[10px] text-center text-gray-600 font-black border-t border-white/5 uppercase mt-4">Admin: Battushig / RGT_YTHAPPY</div>
               </form>
             </div>
           </div>
