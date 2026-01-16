@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { User } from '../types';
 
 interface NavbarProps {
@@ -10,7 +10,8 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ user, onLogout, onOpenAuth }) => {
-  const isAdmin = user?.username === 'Battushig';
+  // Зөвхөн Battushig биш, бүх админ эрхтэй хэрэглэгч харах боломжтой
+  const isAdmin = user?.role === 'admin';
 
   return (
     <nav className="sticky top-0 z-50 bg-[#050505]/80 backdrop-blur-xl border-b border-white/5 px-4 md:px-8 py-4">
@@ -30,19 +31,21 @@ export const Navbar: React.FC<NavbarProps> = ({ user, onLogout, onOpenAuth }) =>
               to="/admin" 
               className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black uppercase tracking-widest px-5 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-indigo-600/20 active:scale-95"
             >
-              Админ
+              Админ Панел
             </Link>
           )}
 
           {user ? (
             <div className="flex items-center gap-4">
               <div className="hidden sm:flex flex-col items-end">
-                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Хэрэглэгч</span>
+                <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">
+                  {user.role === 'admin' ? 'Администратор' : 'Уншигч'}
+                </span>
                 <span className="text-sm font-bold text-white">{user.username}</span>
               </div>
               <button 
                 onClick={onLogout}
-                className="text-xs font-black text-gray-500 hover:text-red-500 uppercase tracking-widest transition-all"
+                className="text-xs font-black text-zinc-500 hover:text-red-500 uppercase tracking-widest transition-all"
               >
                 Гарах
               </button>
