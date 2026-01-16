@@ -30,7 +30,7 @@ const getSupabase = () => {
   return null;
 };
 
-// --- Image Editor ---
+// --- Image Editor (Fixed for Long Strips) ---
 const ImageEditor: React.FC<{
   src: string;
   onSave: (newSrc: string) => void;
@@ -41,24 +41,45 @@ const ImageEditor: React.FC<{
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [brushColor, setBrushColor] = useState('#6366f1');
   const [isDrawing, setIsDrawing] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    
+    setIsLoading(true);
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
+      // Browsers have limits for canvas dimensions (often around 16k or 32k px)
+      // Long manga strips can exceed this. We scale down if necessary.
+      const MAX_CANVAS_DIM = 8192; 
+      let scale = 1;
+      
+      if (img.width > MAX_CANVAS_DIM || img.height > MAX_CANVAS_DIM) {
+        scale = Math.min(MAX_CANVAS_DIM / img.width, MAX_CANVAS_DIM / img.height);
+      }
+
+      const drawWidth = img.width * scale;
+      const drawHeight = img.height * scale;
+
       const isVertical = rotation % 180 !== 0;
-      canvas.width = isVertical ? img.height : img.width;
-      canvas.height = isVertical ? img.width : img.height;
+      canvas.width = isVertical ? drawHeight : drawWidth;
+      canvas.height = isVertical ? drawWidth : drawHeight;
+      
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.save();
       ctx.translate(canvas.width / 2, canvas.height / 2);
       ctx.rotate((rotation * Math.PI) / 180);
-      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+      ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
       ctx.restore();
+      setIsLoading(false);
+    };
+    img.onerror = () => {
+      alert("Зургийг уншихад алдаа гарлаа.");
+      setIsLoading(false);
     };
     img.src = src;
   }, [src, rotation]);
@@ -106,8 +127,9 @@ const ImageEditor: React.FC<{
             <button onClick={() => canvasRef.current && onSave(canvasRef.current.toDataURL('image/jpeg', 0.8))} className="px-4 py-2 bg-indigo-600 rounded-xl text-xs font-bold shadow-lg shadow-indigo-600/20">Хадгалах</button>
           </div>
         </div>
-        <div className="flex-1 overflow-auto bg-black rounded-[2rem] flex items-center justify-center p-4 border border-white/5">
-          <canvas ref={canvasRef} onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} className="max-w-full max-h-full shadow-2xl rounded-lg" />
+        <div className="flex-1 overflow-auto bg-black rounded-[2rem] flex items-center justify-center p-4 border border-white/5 relative">
+          {isLoading && <div className="absolute inset-0 flex items-center justify-center text-indigo-500 font-black animate-pulse uppercase tracking-widest text-xs">Боловсруулж байна...</div>}
+          <canvas ref={canvasRef} onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} className="max-w-full shadow-2xl rounded-lg" />
         </div>
       </div>
     </div>
@@ -560,17 +582,24 @@ const App: React.FC = () => {
   useEffect(() => {
     const saved = localStorage.getItem('manga_list');
     if (saved) {
-      setMangaList(JSON.parse(saved));
+      try {
+        setMangaList(JSON.parse(saved));
+      } catch (e) {
+        setMangaList(INITIAL_MANGA);
+      }
     } else {
       setMangaList(INITIAL_MANGA);
     }
-    // Автоматаар үүлэн сангаас дата татах
     handleFetchFromCloud();
   }, []);
 
   useEffect(() => {
     if (mangaList.length > 0) {
-      localStorage.setItem('manga_list', JSON.stringify(mangaList));
+      try {
+        localStorage.setItem('manga_list', JSON.stringify(mangaList));
+      } catch (e) {
+        console.warn("LocalStorage дүүрсэн байна. Зургуудыг Cloud-руу Sync хийнэ үү.");
+      }
     }
   }, [mangaList]);
 
@@ -590,11 +619,8 @@ const App: React.FC = () => {
     }
     setCloudStatus('Syncing...');
     try {
-      // Манганы жагсаалтыг синхрончлох
       const mangaData = mangaList.map(m => ({ id: m.id, data: m }));
       await sb.from('manga').upsert(mangaData);
-      
-      // Админуудын жагсаалтыг синхрончлох
       await sb.from('config').upsert({ id: 'admins_list', data: admins });
       
       setCloudStatus('Амжилттай хуулагдлаа');
@@ -610,13 +636,11 @@ const App: React.FC = () => {
     if (!sb) return;
     try {
       setCloudStatus('Fetching...');
-      // Манга татах
-      const { data: mData, error: mError } = await sb.from('manga').select('*');
+      const { data: mData } = await sb.from('manga').select('*');
       if (mData && mData.length > 0) {
         setMangaList(mData.map((i: any) => i.data));
       }
       
-      // Админ татах
       const { data: cData } = await sb.from('config').select('*').eq('id', 'admins_list').single();
       if (cData && cData.data) {
         setAdmins(cData.data);
