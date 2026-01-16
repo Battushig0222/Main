@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
@@ -7,7 +6,7 @@ import { INITIAL_MANGA, ADMIN_CREDENTIALS, SUPABASE_CONFIG } from './constants';
 import { Navbar } from './components/Navbar';
 import { MangaCard } from './components/MangaCard';
 
-// Utility to convert file to base64
+// Utility to convert file to base64 with resizing
 const processImageFile = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -15,7 +14,7 @@ const processImageFile = (file: File): Promise<string> => {
     reader.onload = (event) => {
       const img = new Image();
       img.onload = () => {
-        const MAX_DIM = 4096; 
+        const MAX_DIM = 2048; 
         let width = img.width || 800;
         let height = img.height || 1200;
         if (width > MAX_DIM || height > MAX_DIM) {
@@ -31,10 +30,12 @@ const processImageFile = (file: File): Promise<string> => {
         ctx.fillStyle = "white"; 
         ctx.fillRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.8));
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
       };
+      img.onerror = () => reject('Image load failed');
       img.src = event.target?.result as string;
     };
+    reader.onerror = () => reject('File read failed');
   });
 };
 
@@ -348,6 +349,14 @@ const ChapterEditorModal: React.FC<{ chapter: Chapter; onClose: () => void; onSa
   const [pages, setPages] = useState<string[]>(chapter.pages);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
 
+  // Fix: Explicitly cast each file to File to avoid "unknown" type error
+  const handleAddMorePages = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const newPages = await Promise.all(Array.from(e.target.files).map(f => processImageFile(f as File)));
+      setPages(prev => [...prev, ...newPages]);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl">
       {editingIdx !== null && <ImageEditor src={pages[editingIdx]} onClose={() => setEditingIdx(null)} onSave={src => { const p = [...pages]; p[editingIdx] = src; setPages(p); setEditingIdx(null); }} />}
@@ -359,7 +368,11 @@ const ChapterEditorModal: React.FC<{ chapter: Chapter; onClose: () => void; onSa
               <input type="number" step="0.1" value={num} onChange={e => setNum(e.target.value)} className="w-full bg-black border border-white/5 rounded-xl p-3 text-white font-bold outline-none" placeholder="Num" />
               <input value={title} onChange={e => setTitle(e.target.value)} className="w-full bg-black border border-white/5 rounded-xl p-3 text-white font-bold outline-none" placeholder="Title" />
             </div>
-            <button onClick={() => onSave({ ...chapter, number: parseFloat(num), title, pages })} className="w-full bg-indigo-600 py-4 rounded-2xl font-black uppercase shadow-xl">Update Chapter</button>
+            
+            <input type="file" multiple onChange={handleAddMorePages} className="hidden" id="edit-add-pages" />
+            <label htmlFor="edit-add-pages" className="block w-full text-center bg-white/5 py-3 rounded-2xl font-black text-[10px] uppercase cursor-pointer hover:bg-white/10 transition-all">Add More Pages</label>
+            
+            <button onClick={() => onSave({ ...chapter, number: parseFloat(num) || 0, title, pages })} className="w-full bg-indigo-600 py-4 rounded-2xl font-black uppercase shadow-xl">Update Chapter</button>
             <button onClick={() => window.confirm('Устгах уу?') && onDelete()} className="w-full bg-red-600/10 text-red-500 py-4 rounded-2xl font-black uppercase border border-red-600/20">Delete Chapter</button>
           </div>
           <div className="lg:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-4 bg-black p-6 rounded-[2rem] min-h-[50vh] content-start">
@@ -367,65 +380,10 @@ const ChapterEditorModal: React.FC<{ chapter: Chapter; onClose: () => void; onSa
               <div key={i} className="relative group aspect-[2/3] bg-zinc-900 rounded-2xl overflow-hidden border border-white/5">
                 <img src={p} className="w-full h-full object-cover" />
                 <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-3"><button onClick={() => setEditingIdx(i)} className="bg-indigo-600 text-[10px] font-black uppercase px-6 py-2 rounded-xl">Edit</button><button onClick={() => setPages(pages.filter((_, idx) => idx !== i))} className="bg-red-600/20 text-red-500 text-[10px] font-black uppercase px-6 py-2 rounded-xl">Remove</button></div>
+                <div className="absolute top-2 left-2 bg-black/50 text-[10px] font-bold px-2 py-0.5 rounded text-white">{i + 1}</div>
               </div>
             ))}
           </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// --- Home ---
-const Home: React.FC<{ mangaList: Manga[] }> = ({ mangaList }) => {
-  const [search, setSearch] = useState('');
-  const filtered = mangaList.filter(m => m.title.toLowerCase().includes(search.toLowerCase()) || m.author.toLowerCase().includes(search.toLowerCase()));
-  return (
-    <div className="max-w-7xl mx-auto p-4 md:p-8">
-      <div className="mb-16 pt-10"><h1 className="text-5xl md:text-8xl font-black tracking-tighter text-white uppercase italic leading-none">Epic <span className="text-indigo-600">Stories</span></h1><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="w-full max-w-2xl mt-8 bg-[#0f0f0f] border border-white/5 rounded-3xl p-6 text-white font-bold outline-none focus:border-indigo-600 shadow-2xl" /></div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6 md:gap-10">{filtered.map(manga => <MangaCard key={manga.id} manga={manga} />)}</div>
-    </div>
-  );
-};
-
-// --- Manga Detail ---
-const MangaDetail: React.FC<{ mangaList: Manga[], user: User | null, onUpdateManga: (manga: Manga) => void, onDeleteManga: (id: string) => void }> = ({ mangaList, user, onUpdateManga, onDeleteManga }) => {
-  const navigate = useNavigate();
-  const { id } = useParams();
-  const manga = mangaList.find(m => m.id === id);
-  const [showAddChapter, setShowAddChapter] = useState(false);
-  const [chNumber, setChNumber] = useState('');
-  const [chTitle, setChTitle] = useState('');
-  const [chPages, setChPages] = useState<string[]>([]);
-  const [editingChapter, setEditingChapter] = useState<Chapter | null>(null);
-  const [editingManga, setEditingManga] = useState(false);
-
-  if (!manga) return null;
-  const isAdmin = user?.role === 'admin';
-
-  return (
-    <div className="max-w-7xl mx-auto p-4 md:p-16">
-      {editingManga && <MangaEditModal manga={manga} onClose={() => setEditingManga(false)} onSave={u => { onUpdateManga(u); setEditingManga(false); }} onDelete={() => { onDeleteManga(manga.id); navigate('/'); }} />}
-      {editingChapter && <ChapterEditorModal chapter={editingChapter} onClose={() => setEditingChapter(null)} onSave={u => { onUpdateManga({ ...manga, chapters: manga.chapters.map(c => c.id === u.id ? u : c) }); setEditingChapter(null); }} onDelete={() => { onUpdateManga({ ...manga, chapters: manga.chapters.filter(c => c.id !== editingChapter.id) }); setEditingChapter(null); }} />}
-      <div className="flex flex-col lg:flex-row gap-16 lg:gap-24">
-        <div className="w-full lg:w-[400px] shrink-0 space-y-10">
-          <div className="relative group/main"><img src={manga.coverUrl} className="w-full rounded-[3rem] shadow-2xl border border-white/5" />{isAdmin && <button onClick={() => setEditingManga(true)} className="absolute inset-0 bg-black/40 opacity-0 group-hover/main:opacity-100 flex items-center justify-center font-black uppercase text-xs rounded-[3rem]">Edit Info</button>}</div>
-        </div>
-        <div className="flex-1 space-y-12">
-          <h1 className="text-6xl md:text-8xl font-black leading-none text-white uppercase italic">{manga.title}</h1>
-          <p className="text-zinc-400 text-lg leading-relaxed max-w-3xl">{manga.description}</p>
-          {isAdmin && <button onClick={() => setShowAddChapter(!showAddChapter)} className="bg-indigo-600 px-8 py-4 rounded-2xl font-black text-xs uppercase shadow-xl">Add Chapter</button>}
-          {showAddChapter && (
-            <form onSubmit={(e) => { e.preventDefault(); onUpdateManga({ ...manga, chapters: [...manga.chapters, { id: `ch-${Date.now()}`, number: parseFloat(chNumber), title: chTitle, pages: chPages, createdAt: new Date().toLocaleDateString() }] }); setShowAddChapter(false); setChPages([]); }} className="p-10 bg-[#0f0f0f] rounded-[3rem] space-y-6 border border-white/5 shadow-2xl">
-              <div className="grid md:grid-cols-2 gap-6"><input type="number" step="0.1" value={chNumber} onChange={e => setChNumber(e.target.value)} className="bg-black border border-white/5 rounded-2xl p-4 text-white font-bold" placeholder="Num" required /><input value={chTitle} onChange={e => setChTitle(e.target.value)} className="bg-black border border-white/5 rounded-2xl p-4 text-white font-bold" placeholder="Title" required /></div>
-              {/* Fix: Explicitly cast target to HTMLInputElement and map items to File to resolve TypeScript error on line 421 */}
-              <input type="file" multiple onChange={async e => { const target = e.target as HTMLInputElement; if (target.files) setChPages(await Promise.all(Array.from(target.files).map(f => processImageFile(f as File)))); }} className="hidden" id="ch-upload" /><label htmlFor="ch-upload" className="block border-2 border-dashed border-white/5 p-12 rounded-[2rem] text-center cursor-pointer font-black text-xs text-zinc-500 uppercase">{chPages.length > 0 ? `${chPages.length} Pages Ready` : 'Upload Pages'}</label>
-              <button className="w-full bg-indigo-600 py-5 rounded-2xl font-black uppercase shadow-xl">Create Chapter</button>
-            </form>
-          )}
-          <div className="space-y-8"><h2 className="text-4xl font-black italic">Chapters</h2><div className="grid gap-4">{[...manga.chapters].sort((a,b) => b.number - a.number).map(chapter => (
-            <div key={chapter.id} className="bg-[#0f0f0f] p-6 rounded-[2.5rem] flex items-center justify-between group border border-white/5 hover:border-indigo-600/30 transition-all"><div onClick={() => navigate(`/reader/${manga.id}/${chapter.id}`)} className="flex-1 cursor-pointer"><div className="text-indigo-600 font-black text-3xl italic">#{chapter.number}</div><div className="font-black text-xl text-white mt-1">{chapter.title}</div></div>{isAdmin && <button onClick={() => setEditingChapter(chapter)} className="p-4 bg-indigo-600/10 text-indigo-500 rounded-2xl font-black text-[10px] uppercase opacity-0 group-hover:opacity-100 transition-opacity">Edit</button>}</div>
-          ))}</div></div>
         </div>
       </div>
     </div>
@@ -436,12 +394,19 @@ const MangaDetail: React.FC<{ mangaList: Manga[], user: User | null, onUpdateMan
 const AdminPanel: React.FC<{ 
   mangaList: Manga[], admins: AdminAccount[], onAddManga: (m: Manga) => void, onSyncToCloud: () => void, 
   onFetchFromCloud: () => void, onDeleteManga: (id: string) => void, onAddAdmin: (a: AdminAccount) => void,
-  onDeleteAdmin: (u: string) => void, cloudStatus: string, currentUser: User | null
+  onDeleteAdmin: (u: string) => void, cloudStatus: string, currentUser: User | null, lastSynced: string
 }> = (props) => {
   const [activeTab, setActiveTab] = useState<'content' | 'staff'>('content');
   const [newManga, setNewManga] = useState({ title: '', author: '', description: '', coverUrl: '' });
   const [newAdmin, setNewAdmin] = useState({ username: '', password: '' });
   const navigate = useNavigate();
+
+  const getStatusColor = (status: string) => {
+    if (status.includes('Хадгаллаа')) return 'text-green-500';
+    if (status.includes('Хадгалж байна')) return 'text-indigo-400';
+    if (status.includes('Алдаа')) return 'text-red-500';
+    return 'text-zinc-500';
+  };
 
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-16 space-y-16">
@@ -453,21 +418,32 @@ const AdminPanel: React.FC<{
             <button onClick={() => setActiveTab('staff')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'staff' ? 'bg-indigo-600 text-white' : 'text-zinc-600 hover:text-white'}`}>Staff</button>
           </div>
         </div>
-        <div className="flex gap-4 relative z-10">
-          <button onClick={props.onSyncToCloud} className="bg-indigo-600 px-8 py-3.5 rounded-2xl text-[10px] font-black uppercase shadow-xl hover:bg-indigo-500 transition-all">Sync Cloud</button>
-          <div className="px-8 py-3.5 bg-black border border-white/5 rounded-2xl text-[10px] text-indigo-400 font-black uppercase">{props.cloudStatus}</div>
+        <div className="flex flex-col items-end gap-3 relative z-10">
+          <div className="flex gap-4">
+             <button onClick={props.onSyncToCloud} className="bg-indigo-600 px-8 py-3.5 rounded-2xl text-[10px] font-black uppercase shadow-xl hover:bg-indigo-500 transition-all flex items-center gap-2">
+               <svg className={`w-3 h-3 ${props.cloudStatus.includes('байна') ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+               Sync Now
+             </button>
+          </div>
+          <div className="flex flex-col items-end">
+            <div className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${getStatusColor(props.cloudStatus)}`}>
+               <span className={`w-1.5 h-1.5 rounded-full ${props.cloudStatus.includes('байна') ? 'bg-indigo-500 animate-pulse' : props.cloudStatus.includes('Хадгаллаа') ? 'bg-green-500' : 'bg-zinc-700'}`}></span>
+               {props.cloudStatus}
+            </div>
+            {props.lastSynced && <div className="text-[9px] text-zinc-600 font-bold mt-1">Last Synced: {props.lastSynced}</div>}
+          </div>
         </div>
       </div>
 
       {activeTab === 'content' ? (
         <div className="grid lg:grid-cols-2 gap-16">
-          <form onSubmit={e => { e.preventDefault(); props.onAddManga({ id: `m-${Date.now()}`, title: newManga.title, author: newManga.author, description: newManga.description, coverUrl: newManga.coverUrl || 'https://picsum.photos/400/600', gallery: [], genre: ['Manga'], status: 'Ongoing', rating: 5.0, chapters: [] }); navigate(`/manga/m-${Date.now()}`); }} className="space-y-10 bg-[#0f0f0f] p-10 md:p-14 rounded-[3.5rem] border border-white/5 shadow-2xl">
+          <form onSubmit={e => { e.preventDefault(); props.onAddManga({ id: `m-${Date.now()}`, title: newManga.title, author: newManga.author, description: newManga.description, coverUrl: newManga.coverUrl || 'https://picsum.photos/400/600', gallery: [], genre: ['Manga'], status: 'Ongoing', rating: 5.0, chapters: [] }); setNewManga({ title: '', author: '', description: '', coverUrl: '' }); }} className="space-y-10 bg-[#0f0f0f] p-10 md:p-14 rounded-[3.5rem] border border-white/5 shadow-2xl">
             <h2 className="text-3xl font-black italic uppercase">Add Manga</h2>
             <div className="space-y-6">
               <input value={newManga.title} onChange={e => setNewManga({...newManga, title: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none" placeholder="Title" required />
               <input value={newManga.author} onChange={e => setNewManga({...newManga, author: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none" placeholder="Author" required />
               <textarea value={newManga.description} onChange={e => setNewManga({...newManga, description: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white h-44 outline-none" placeholder="Description" required />
-              {/* Fix: Cast event target to HTMLInputElement and files to File to prevent TypeScript errors when processing cover upload */}
+              {/* Fix: Explicitly cast target.files[0] to File to resolve type error */}
               <input type="file" onChange={async e => { const target = e.target as HTMLInputElement; if (target.files?.[0]) setNewManga({...newManga, coverUrl: await processImageFile(target.files[0] as File)}); }} className="hidden" id="m-cover-add" /><label htmlFor="m-cover-add" className="block border-2 border-dashed border-white/5 p-12 rounded-[2rem] text-center cursor-pointer text-zinc-600 font-black uppercase text-xs hover:bg-white/5">{newManga.coverUrl ? 'Ready' : 'Cover Art'}</label>
               <button className="w-full bg-indigo-600 py-6 rounded-2xl font-black uppercase">Initialize Series</button>
             </div>
@@ -504,26 +480,7 @@ const AdminPanel: React.FC<{
   );
 };
 
-const Reader: React.FC<{ mangaList: Manga[] }> = ({ mangaList }) => {
-  const { mangaId, chapterId } = useParams();
-  const manga = mangaList.find(m => m.id === mangaId);
-  const chapter = manga?.chapters.find(c => c.id === chapterId);
-  if (!chapter) return null;
-  return (
-    <div className="bg-[#050505] min-h-screen">
-      <div className="max-w-4xl mx-auto pb-32">
-        <div className="sticky top-0 bg-[#050505]/95 backdrop-blur-2xl p-6 flex items-center justify-between z-50 border-b border-white/5">
-          <button onClick={() => window.history.back()} className="px-6 py-3 bg-white/5 rounded-2xl text-white font-black text-xs uppercase hover:bg-white/10 transition-all">← Back</button>
-          <div className="text-center"><h2 className="font-black text-lg text-white truncate max-w-[200px]">{manga?.title}</h2><p className="text-[10px] text-indigo-500 font-black uppercase tracking-[0.3em]">Chapter {chapter.number}</p></div>
-          <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{chapter.pages.length} Pages</span>
-        </div>
-        <div className="flex flex-col gap-2 mt-6">{chapter.pages.map((p, i) => <img key={i} src={p} className="w-full h-auto block shadow-2xl" loading="lazy" />)}</div>
-      </div>
-    </div>
-  );
-};
-
-// --- App ---
+// --- Main App ---
 const App: React.FC = () => {
   const [mangaList, setMangaList] = useState<Manga[]>([]);
   const [admins, setAdmins] = useState<AdminAccount[]>(() => {
@@ -537,7 +494,11 @@ const App: React.FC = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authForm, setAuthForm] = useState({ username: '', password: '' });
+  
   const [cloudStatus, setCloudStatus] = useState('Standby');
+  const [lastSynced, setLastSynced] = useState('');
+  const syncTimeoutRef = useRef<any>(null);
+  const isInitialLoad = useRef(true);
 
   useEffect(() => {
     const saved = localStorage.getItem('manga_list');
@@ -550,27 +511,51 @@ const App: React.FC = () => {
   useEffect(() => { localStorage.setItem('rgt_admins', JSON.stringify(admins)); }, [admins]);
   useEffect(() => { localStorage.setItem('auth_state', JSON.stringify(authState)); }, [authState]);
 
+  useEffect(() => {
+    if (isInitialLoad.current) {
+      isInitialLoad.current = false;
+      return;
+    }
+    setCloudStatus('Өөрчлөлтийг хүлээж байна...');
+    if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+    syncTimeoutRef.current = setTimeout(() => {
+      handleSyncToCloud();
+    }, 3500);
+    return () => { if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current); };
+  }, [mangaList, admins]);
+
   const handleSyncToCloud = async (ovAdmins?: AdminAccount[], ovManga?: Manga[]) => {
     const sb = getSupabase(); if (!sb) return;
-    setCloudStatus('Syncing...');
+    setCloudStatus('Хадгалж байна...');
     try {
       const targetAdmins = ovAdmins || admins;
       const targetManga = ovManga || mangaList;
       const mangaData = targetManga.map(m => ({ id: m.id, data: m }));
-      if (mangaData.length > 0) await sb.from('manga').upsert(mangaData);
+      if (mangaData.length > 0) {
+        await sb.from('manga').upsert(mangaData);
+      }
       await sb.from('config').upsert({ id: 'admins_list', data: targetAdmins });
-      setCloudStatus('Success'); setTimeout(() => setCloudStatus('Standby'), 3000);
-    } catch (e) { setCloudStatus('Error'); }
+      setCloudStatus('Үүлэн дээр хадгаллаа');
+      setLastSynced(new Date().toLocaleTimeString());
+      setTimeout(() => setCloudStatus('Холбогдсон'), 5000);
+    } catch (e) { 
+      setCloudStatus('Синк алдаа гарлаа'); 
+    }
   };
 
   const handleFetchFromCloud = async () => {
     const sb = getSupabase(); if (!sb) return;
+    setCloudStatus('Мэдээлэл татаж байна...');
     try {
       const { data: mData } = await sb.from('manga').select('*');
       if (mData?.length) setMangaList(mData.map((i: any) => i.data));
       const { data: cData } = await sb.from('config').select('*').eq('id', 'admins_list').single();
       if (cData?.data) setAdmins(cData.data);
-    } catch (e) { }
+      setCloudStatus('Холбогдсон');
+      setLastSynced(new Date().toLocaleTimeString());
+    } catch (e) {
+      setCloudStatus('Татахад алдаа гарлаа');
+    }
   };
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
@@ -578,25 +563,41 @@ const App: React.FC = () => {
     if (authMode === 'login') {
       const found = admins.find(a => a.username === authForm.username && a.password === authForm.password);
       if (found) { setAuthState({ user: { username: found.username, role: 'admin' }, isAuthenticated: true }); setShowAuthModal(false); }
-      else alert("Authentication failed.");
+      else alert("Нэвтрэх нэр эсвэл нууц үг буруу байна.");
     } else {
-      if (admins.some(a => a.username === authForm.username)) return alert("User exists.");
+      if (admins.some(a => a.username === authForm.username)) return alert("Энэ хэрэглэгч бүртгэлтэй байна.");
       const newUser = { username: authForm.username, password: authForm.password, isSuperAdmin: false };
-      const upAdmins = [...admins, newUser]; setAdmins(upAdmins); await handleSyncToCloud(upAdmins);
-      setAuthState({ user: { username: authForm.username, role: 'admin' }, isAuthenticated: true }); setShowAuthModal(false);
+      const upAdmins = [...admins, newUser]; 
+      setAdmins(upAdmins);
+      setAuthState({ user: { username: authForm.username, role: 'admin' }, isAuthenticated: true }); 
+      setShowAuthModal(false);
     }
   };
 
   return (
     <HashRouter>
-      <div className="min-h-screen flex flex-col">
+      <div className="min-h-screen flex flex-col selection:bg-indigo-600 selection:text-white">
         <Navbar user={authState.user} onLogout={() => setAuthState({ user: null, isAuthenticated: false })} onOpenAuth={() => setShowAuthModal(true)} />
         <main className="flex-1 bg-[#050505]">
           <Routes>
             <Route path="/" element={<Home mangaList={mangaList} />} />
-            <Route path="/manga/:id" element={<MangaDetail mangaList={mangaList} user={authState.user} onUpdateManga={u => { const newList = mangaList.map(m => m.id === u.id ? u : m); setMangaList(newList); handleSyncToCloud(admins, newList); }} onDeleteManga={id => { const newList = mangaList.filter(m => m.id !== id); setMangaList(newList); handleSyncToCloud(admins, newList); }} />} />
+            <Route path="/manga/:id" element={<MangaDetail mangaList={mangaList} user={authState.user} onUpdateManga={u => { setMangaList(mangaList.map(m => m.id === u.id ? u : m)); }} onDeleteManga={id => { setMangaList(mangaList.filter(m => m.id !== id)); }} />} />
             <Route path="/reader/:mangaId/:chapterId" element={<Reader mangaList={mangaList} />} />
-            <Route path="/admin" element={authState.user?.role === 'admin' ? <AdminPanel mangaList={mangaList} admins={admins} onAddManga={m => { const nl = [m, ...mangaList]; setMangaList(nl); handleSyncToCloud(admins, nl); }} onSyncToCloud={() => handleSyncToCloud()} onFetchFromCloud={handleFetchFromCloud} onDeleteManga={id => { const nl = mangaList.filter(m => m.id !== id); setMangaList(nl); handleSyncToCloud(admins, nl); }} onAddAdmin={a => { const upAdmins = [...admins, a]; setAdmins(upAdmins); handleSyncToCloud(upAdmins); }} onDeleteAdmin={u => { const upAdmins = admins.filter(a => a.username !== u); setAdmins(upAdmins); handleSyncToCloud(upAdmins); }} cloudStatus={cloudStatus} currentUser={authState.user} /> : <Home mangaList={mangaList} />} />
+            <Route path="/admin" element={authState.user?.role === 'admin' ? (
+              <AdminPanel 
+                mangaList={mangaList} 
+                admins={admins} 
+                onAddManga={m => setMangaList([m, ...mangaList])} 
+                onSyncToCloud={() => handleSyncToCloud()} 
+                onFetchFromCloud={handleFetchFromCloud} 
+                onDeleteManga={id => setMangaList(mangaList.filter(m => m.id !== id))} 
+                onAddAdmin={a => setAdmins([...admins, a])} 
+                onDeleteAdmin={u => setAdmins(admins.filter(a => a.username !== u))} 
+                cloudStatus={cloudStatus} 
+                currentUser={authState.user}
+                lastSynced={lastSynced}
+              />
+            ) : <Home mangaList={mangaList} />} />
           </Routes>
         </main>
         {showAuthModal && (
@@ -615,6 +616,204 @@ const App: React.FC = () => {
         <footer className="p-16 border-t border-white/5 bg-[#050505] text-center"><div className="text-2xl font-black italic">RGT <span className="text-indigo-600">MANGA</span></div></footer>
       </div>
     </HashRouter>
+  );
+};
+
+// --- Home ---
+const Home: React.FC<{ mangaList: Manga[] }> = ({ mangaList }) => {
+  const [search, setSearch] = useState('');
+  const filtered = mangaList.filter(m => m.title.toLowerCase().includes(search.toLowerCase()) || m.author.toLowerCase().includes(search.toLowerCase()));
+  return (
+    <div className="max-w-7xl mx-auto p-4 md:p-8">
+      <div className="mb-16 pt-10"><h1 className="text-5xl md:text-8xl font-black tracking-tighter text-white uppercase italic leading-none">Epic <span className="text-indigo-600">Stories</span></h1><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="w-full max-w-2xl mt-8 bg-[#0f0f0f] border border-white/5 rounded-3xl p-6 text-white font-bold outline-none focus:border-indigo-600 shadow-2xl" /></div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6 md:gap-10">{filtered.map(manga => <MangaCard key={manga.id} manga={manga} />)}</div>
+    </div>
+  );
+};
+
+// --- Manga Detail ---
+const MangaDetail: React.FC<{ mangaList: Manga[], user: User | null, onUpdateManga: (manga: Manga) => void, onDeleteManga: (id: string) => void }> = ({ mangaList, user, onUpdateManga, onDeleteManga }) => {
+  const navigate = useNavigate();
+  const { id } = useParams();
+  const manga = mangaList.find(m => m.id === id);
+  const [showAddChapter, setShowAddChapter] = useState(false);
+  const [chNumber, setChNumber] = useState('');
+  const [chTitle, setChTitle] = useState('');
+  const [chPages, setChPages] = useState<string[]>([]);
+  const [processing, setProcessing] = useState(false);
+  const [editingChapter, setEditingChapter] = useState<Chapter | null>(null);
+  const [editingManga, setEditingManga] = useState(false);
+
+  if (!manga) return <div className="p-20 text-center text-zinc-500 font-black uppercase italic tracking-widest">Manga not found</div>;
+  const isAdmin = user?.role === 'admin';
+
+  const handlePagesUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setProcessing(true);
+      try {
+        const filesArray = Array.from(e.target.files);
+        // Fix: Explicitly cast each file to File to avoid "unknown" type error
+        const processed = await Promise.all(filesArray.map(f => processImageFile(f as File)));
+        setChPages(prev => [...prev, ...processed]);
+      } catch (err) {
+        alert("Зураг боловсруулахад алдаа гарлаа.");
+      } finally {
+        setProcessing(false);
+      }
+    }
+  };
+
+  const handleCreateChapter = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (chPages.length === 0) return alert("Хуудас оруулаагүй байна.");
+    const num = parseFloat(chNumber);
+    if (isNaN(num)) return alert("Chapter дугаар буруу байна.");
+
+    const newChapter: Chapter = {
+      id: `ch-${Date.now()}`,
+      number: num,
+      title: chTitle || `Chapter ${num}`,
+      pages: chPages,
+      createdAt: new Date().toLocaleDateString()
+    };
+
+    onUpdateManga({
+      ...manga,
+      chapters: [...manga.chapters, newChapter]
+    });
+    
+    setShowAddChapter(false);
+    setChNumber('');
+    setChTitle('');
+    setChPages([]);
+  };
+
+  return (
+    <div className="max-w-7xl mx-auto p-4 md:p-16">
+      {editingManga && <MangaEditModal manga={manga} onClose={() => setEditingManga(false)} onSave={u => { onUpdateManga(u); setEditingManga(false); }} onDelete={() => { onDeleteManga(manga.id); navigate('/'); }} />}
+      {editingChapter && <ChapterEditorModal chapter={editingChapter} onClose={() => setEditingChapter(null)} onSave={u => { onUpdateManga({ ...manga, chapters: manga.chapters.map(c => c.id === u.id ? u : c) }); setEditingChapter(null); }} onDelete={() => { onUpdateManga({ ...manga, chapters: manga.chapters.filter(c => c.id !== editingChapter.id) }); setEditingChapter(null); }} />}
+      
+      <div className="flex flex-col lg:flex-row gap-16 lg:gap-24">
+        <div className="w-full lg:w-[400px] shrink-0 space-y-10">
+          <div className="relative group/main">
+            <img src={manga.coverUrl} className="w-full rounded-[3rem] shadow-2xl border border-white/5" />
+            {isAdmin && <button onClick={() => setEditingManga(true)} className="absolute inset-0 bg-black/40 opacity-0 group-hover/main:opacity-100 flex items-center justify-center font-black uppercase text-xs rounded-[3rem] transition-all">Edit Info</button>}
+          </div>
+          <div className="bg-[#0f0f0f] p-8 rounded-[2rem] border border-white/5 flex flex-col gap-4">
+             <div className="flex justify-between items-center"><span className="text-[10px] text-zinc-600 font-black uppercase">Author</span><span className="font-bold text-sm">{manga.author}</span></div>
+             <div className="flex justify-between items-center"><span className="text-[10px] text-zinc-600 font-black uppercase">Status</span><span className="font-bold text-sm text-indigo-500">{manga.status}</span></div>
+             <div className="flex justify-between items-center"><span className="text-[10px] text-zinc-600 font-black uppercase">Chapters</span><span className="font-bold text-sm">{manga.chapters.length}</span></div>
+          </div>
+        </div>
+        
+        <div className="flex-1 space-y-12">
+          <div className="space-y-6">
+             <h1 className="text-6xl md:text-8xl font-black leading-none text-white uppercase italic tracking-tighter">{manga.title}</h1>
+             <p className="text-zinc-400 text-lg leading-relaxed max-w-3xl font-medium">{manga.description}</p>
+          </div>
+          
+          {isAdmin && <button onClick={() => setShowAddChapter(!showAddChapter)} className="bg-indigo-600 px-8 py-4 rounded-2xl font-black text-xs uppercase shadow-xl hover:bg-indigo-500 transition-all">Create New Chapter</button>}
+          
+          {showAddChapter && (
+            <form onSubmit={handleCreateChapter} className="p-8 md:p-12 bg-[#0f0f0f] rounded-[3rem] space-y-8 border border-white/5 shadow-2xl scale-in">
+              <h3 className="text-2xl font-black uppercase italic">New Chapter Details</h3>
+              <div className="grid md:grid-cols-2 gap-6">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-zinc-500 ml-2">Chapter Num</label>
+                  <input type="number" step="0.1" value={chNumber} onChange={e => setChNumber(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white font-bold outline-none focus:border-indigo-600" placeholder="e.g. 1.0" required />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-zinc-500 ml-2">Chapter Title (Optional)</label>
+                  <input value={chTitle} onChange={e => setChTitle(e.target.value)} className="w-full bg-black border border-white/5 rounded-2xl p-4 text-white font-bold outline-none focus:border-indigo-600" placeholder="Title" />
+                </div>
+              </div>
+              
+              <div className="space-y-4">
+                 <div className="flex justify-between items-center">
+                   <h4 className="text-[10px] font-black uppercase text-zinc-400">Pages Content ({chPages.length})</h4>
+                   {chPages.length > 0 && <button type="button" onClick={() => setChPages([])} className="text-[10px] text-red-500 font-black uppercase">Clear All</button>}
+                 </div>
+                 
+                 <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-8 gap-3">
+                   {chPages.map((p, idx) => (
+                     <div key={idx} className="relative aspect-[2/3] rounded-lg overflow-hidden border border-white/5 group">
+                        <img src={p} className="w-full h-full object-cover" />
+                        <button type="button" onClick={() => setChPages(chPages.filter((_, i) => i !== idx))} className="absolute top-1 right-1 bg-red-600 text-white w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-opacity">×</button>
+                        <div className="absolute bottom-1 left-1 bg-black/50 px-1 rounded text-[8px] text-white font-bold">{idx+1}</div>
+                     </div>
+                   ))}
+                   <label className="aspect-[2/3] bg-black border border-dashed border-white/10 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-white/5 transition-all">
+                      {processing ? <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div> : <span className="text-xl text-zinc-700">+</span>}
+                      <input type="file" multiple onChange={handlePagesUpload} className="hidden" />
+                   </label>
+                 </div>
+              </div>
+
+              <button disabled={processing} className="w-full bg-indigo-600 py-5 rounded-2xl font-black uppercase shadow-xl hover:bg-indigo-500 transition-all disabled:opacity-50">Confirm & Upload Chapter</button>
+            </form>
+          )}
+
+          <div className="space-y-8">
+            <h2 className="text-4xl font-black italic uppercase tracking-tight">Chapter History</h2>
+            <div className="grid gap-4">
+              {[...manga.chapters].sort((a,b) => b.number - a.number).map(chapter => (
+                <div key={chapter.id} className="bg-[#0f0f0f] p-6 rounded-[2.5rem] flex items-center justify-between group border border-white/5 hover:border-indigo-600/30 transition-all">
+                   <div onClick={() => navigate(`/reader/${manga.id}/${chapter.id}`)} className="flex-1 cursor-pointer">
+                      <div className="text-indigo-600 font-black text-4xl italic leading-none">#{chapter.number}</div>
+                      <div className="font-black text-xl text-white mt-2 group-hover:text-indigo-400 transition-colors">{chapter.title}</div>
+                      <div className="text-[10px] text-zinc-600 font-bold uppercase mt-1 tracking-widest">{chapter.pages.length} PAGES • {chapter.createdAt}</div>
+                   </div>
+                   {isAdmin && <button onClick={() => setEditingChapter(chapter)} className="p-4 bg-indigo-600/10 text-indigo-500 rounded-2xl font-black text-[10px] uppercase opacity-0 group-hover:opacity-100 transition-all hover:bg-indigo-600 hover:text-white">Editor</button>}
+                </div>
+              ))}
+              {manga.chapters.length === 0 && <div className="py-20 text-center text-zinc-800 font-black uppercase tracking-widest text-sm">No chapters released yet</div>}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const Reader: React.FC<{ mangaList: Manga[] }> = ({ mangaList }) => {
+  const { mangaId, chapterId } = useParams();
+  const manga = mangaList.find(m => m.id === mangaId);
+  const chapter = manga?.chapters.find(c => c.id === chapterId);
+  
+  if (!chapter) return <div className="p-40 text-center text-zinc-500 font-black uppercase italic">Хуудас олдсонгүй</div>;
+  
+  return (
+    <div className="bg-[#050505] min-h-screen">
+      <div className="max-w-4xl mx-auto pb-32">
+        <div className="sticky top-0 bg-[#050505]/95 backdrop-blur-3xl p-6 flex items-center justify-between z-50 border-b border-white/5">
+          <button onClick={() => window.history.back()} className="px-6 py-3 bg-white/5 rounded-2xl text-white font-black text-[10px] uppercase hover:bg-white/10 transition-all tracking-widest">← Return</button>
+          <div className="text-center">
+             <h2 className="font-black text-sm text-white truncate max-w-[200px] uppercase">{manga?.title}</h2>
+             <p className="text-[10px] text-indigo-500 font-black uppercase tracking-[0.2em]">Chapter {chapter.number}</p>
+          </div>
+          <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">{chapter.pages.length} Pages</span>
+        </div>
+        
+        <div className="flex flex-col gap-1 mt-6">
+          {chapter.pages.map((p, i) => (
+            <img 
+              key={i} 
+              src={p} 
+              className="w-full h-auto block shadow-[0_32px_64px_rgba(0,0,0,0.5)] border-y border-white/5" 
+              loading="lazy" 
+              alt={`Page ${i+1}`}
+            />
+          ))}
+        </div>
+        
+        <div className="mt-16 text-center">
+           <div className="p-10 border border-white/5 rounded-[3rem] bg-[#0f0f0f]">
+              <h3 className="text-xl font-black uppercase italic mb-6">Chapter {chapter.number} Төгсөв</h3>
+              <button onClick={() => window.history.back()} className="bg-indigo-600 px-10 py-4 rounded-2xl font-black text-xs uppercase shadow-xl shadow-indigo-600/20">Жагсаалт руу буцах</button>
+           </div>
+        </div>
+      </div>
+    </div>
   );
 };
 
