@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
+import { motion } from 'framer-motion';
 import { Manga, User, AuthState, Chapter, AdminAccount } from './types';
 import { INITIAL_MANGA, ADMIN_CREDENTIALS, SUPABASE_CONFIG } from './constants';
 import { Navbar } from './components/Navbar';
@@ -54,9 +55,8 @@ const processImageFile = (file: File): Promise<string> => {
         ctx.fillRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
         
-        // 0.85 quality provides near-lossless sharpness for text 
-        // while preventing data-size overflow that causes black-outs.
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        // 0.95 quality for better sharpness
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
         if (dataUrl.length < 100) {
           reject('Image processing failed (Empty output)');
         } else {
@@ -476,7 +476,8 @@ const AdminPanel: React.FC<{
   onFetchFromCloud: () => void, onDeleteManga: (id: string) => void, onAddAdmin: (a: AdminAccount) => void,
   onDeleteAdmin: (u: string) => void, cloudStatus: string, lastSynced: string
 }> = (props) => {
-  const [newManga, setNewManga] = useState({ title: '', author: '', description: '', coverUrl: '' });
+  const [newManga, setNewManga] = useState({ title: '', author: '', description: '', coverUrl: '', genre: [] as string[], status: 'Ongoing' as 'Ongoing' | 'Completed' });
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-16 space-y-16">
@@ -492,13 +493,20 @@ const AdminPanel: React.FC<{
         </div>
       </div>
       <div className="grid lg:grid-cols-2 gap-16">
-          <form onSubmit={e => { e.preventDefault(); props.onAddManga({ id: `m-${Date.now()}`, title: newManga.title, author: newManga.author, description: newManga.description, coverUrl: newManga.coverUrl || 'https://picsum.photos/400/600', gallery: [], genre: ['Manga'], status: 'Ongoing', rating: 5.0, chapters: [] }); setNewManga({ title: '', author: '', description: '', coverUrl: '' }); }} className="space-y-6 bg-[#0f0f0f] p-10 rounded-[3.5rem] border border-white/5 shadow-xl">
+          <motion.form onSubmit={async e => { e.preventDefault(); setLoading(true); try { props.onAddManga({ id: `m-${Date.now()}`, title: newManga.title, author: newManga.author, description: newManga.description, coverUrl: newManga.coverUrl || 'https://picsum.photos/400/600', gallery: [], genre: newManga.genre.length > 0 ? newManga.genre : ['Manga'], status: newManga.status, rating: 5.0, chapters: [] }); setNewManga({ title: '', author: '', description: '', coverUrl: '', genre: [], status: 'Ongoing' }); } finally { setLoading(false); } }} className="space-y-6 bg-[#0f0f0f] p-10 rounded-[3.5rem] border border-white/5 shadow-xl" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
             <h2 className="text-2xl font-black italic uppercase">Манга Нэмэх</h2>
             <input value={newManga.title} onChange={e => setNewManga({...newManga, title: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600" placeholder="Манга Гарчиг" required />
             <input value={newManga.author} onChange={e => setNewManga({...newManga, author: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600" placeholder="Зохиолч" required />
             <textarea value={newManga.description} onChange={e => setNewManga({...newManga, description: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white h-44 outline-none focus:border-indigo-600" placeholder="Товч тайлбар..." required />
+            <div className="grid md:grid-cols-2 gap-4">
+              <select value={newManga.status} onChange={e => setNewManga({...newManga, status: e.target.value as 'Ongoing' | 'Completed'})} className="bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600">
+                <option value="Ongoing">Ongoing</option>
+                <option value="Completed">Completed</option>
+              </select>
+              <input value={newManga.genre.join(', ')} onChange={e => setNewManga({...newManga, genre: e.target.value.split(',').map(g => g.trim()).filter(g => g)})} className="bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600" placeholder="Жанр (тусгаарлахдаа , ашигла)" />
+            </div>
             <input type="file" onChange={async e => { const target = e.target as HTMLInputElement; if (target.files?.[0]) setNewManga({...newManga, coverUrl: await processImageFile(target.files[0] as File)}); }} className="hidden" id="m-cover" /><label htmlFor="m-cover" className="block border-2 border-dashed border-white/5 p-12 rounded-[2rem] text-center cursor-pointer text-zinc-600 font-black uppercase text-xs hover:bg-white/5 transition-colors">{newManga.coverUrl ? 'Cover Ready' : 'Upload Cover Art'}</label>
-            <button className="w-full bg-indigo-600 py-6 rounded-2xl font-black uppercase shadow-lg shadow-indigo-600/10 active:scale-95 transition-all">Publish</button>
+            <button disabled={loading} className="w-full bg-indigo-600 py-6 rounded-2xl font-black uppercase shadow-lg shadow-indigo-600/10 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed">{loading ? 'Нэмж байна...' : 'Publish'}</button>
           </form>
           <div className="bg-[#0f0f0f] p-10 rounded-[3.5rem] border border-white/5 space-y-8 shadow-xl">
              <h2 className="text-2xl font-black italic uppercase">Жагсаалт</h2>

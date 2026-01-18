@@ -2,6 +2,7 @@
 import React from 'react';
 import { Manga } from '../types';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 
 interface MangaCardProps {
   manga: Manga;
@@ -11,9 +12,12 @@ export const MangaCard: React.FC<MangaCardProps> = ({ manga }) => {
   const navigate = useNavigate();
 
   return (
-    <div 
+    <motion.div 
       onClick={() => navigate(`/manga/${manga.id}`)}
-      className="group relative bg-[#0f0f0f] rounded-2xl overflow-hidden cursor-pointer transition-all hover:-translate-y-2 hover:shadow-2xl hover:shadow-indigo-500/10 border border-white/5"
+      className="group relative bg-[#0f0f0f] rounded-2xl overflow-hidden cursor-pointer border border-white/5"
+      whileHover={{ y: -8, scale: 1.02, boxShadow: "0 25px 50px -12px rgba(99, 102, 241, 0.25)" }}
+      whileTap={{ scale: 0.98 }}
+      transition={{ type: "spring", stiffness: 300, damping: 20 }}
     >
       <div className="aspect-[2/3] overflow-hidden relative">
         <img 
@@ -39,6 +43,6 @@ export const MangaCard: React.FC<MangaCardProps> = ({ manga }) => {
             </span>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 };
