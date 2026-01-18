@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
 import { createClient } from '@supabase/supabase-js';
-import { motion } from 'framer-motion';
 import { Manga, User, AuthState, Chapter, AdminAccount } from './types';
 import { INITIAL_MANGA, ADMIN_CREDENTIALS, SUPABASE_CONFIG } from './constants';
 import { Navbar } from './components/Navbar';
@@ -493,7 +492,7 @@ const AdminPanel: React.FC<{
         </div>
       </div>
       <div className="grid lg:grid-cols-2 gap-16">
-          <motion.form onSubmit={async e => { e.preventDefault(); setLoading(true); try { props.onAddManga({ id: `m-${Date.now()}`, title: newManga.title, author: newManga.author, description: newManga.description, coverUrl: newManga.coverUrl || 'https://picsum.photos/400/600', gallery: [], genre: newManga.genre.length > 0 ? newManga.genre : ['Manga'], status: newManga.status, rating: 5.0, chapters: [] }); setNewManga({ title: '', author: '', description: '', coverUrl: '', genre: [], status: 'Ongoing' }); } finally { setLoading(false); } }} className="space-y-6 bg-[#0f0f0f] p-10 rounded-[3.5rem] border border-white/5 shadow-xl" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+          <form onSubmit={async e => { e.preventDefault(); setLoading(true); try { props.onAddManga({ id: `m-${Date.now()}`, title: newManga.title, author: newManga.author, description: newManga.description, coverUrl: newManga.coverUrl || 'https://picsum.photos/400/600', gallery: [], genre: newManga.genre.length > 0 ? newManga.genre : ['Manga'], status: newManga.status, rating: 5.0, chapters: [] }); setNewManga({ title: '', author: '', description: '', coverUrl: '', genre: [], status: 'Ongoing' }); } finally { setLoading(false); } }} className="space-y-6 bg-[#0f0f0f] p-10 rounded-[3.5rem] border border-white/5 shadow-xl">
             <h2 className="text-2xl font-black italic uppercase">Манга Нэмэх</h2>
             <input value={newManga.title} onChange={e => setNewManga({...newManga, title: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600" placeholder="Манга Гарчиг" required />
             <input value={newManga.author} onChange={e => setNewManga({...newManga, author: e.target.value})} className="w-full bg-black border border-white/5 rounded-2xl p-5 text-white font-bold outline-none focus:border-indigo-600" placeholder="Зохиолч" required />
